@@ -64,9 +64,9 @@ Claude Code Stop hook trigger
     → stdout JSON: {"additionalContext": "Context summary + prompt to call voice-buddy agent"}
     → Claude reads context, calls voice-buddy subagent
     → Subagent generates one sentence in character (15-30 chars)
-    → Subagent's own Stop hook triggers
-    → stdin JSON contains: {"hook_event_name": "Stop", "transcript_path": "<path>"}
-    → subagent_tts.py reads transcript file → extracts last assistant message → tts.py → player.py
+    → Subagent's own Stop hook triggers (auto-converted to SubagentStop by Claude Code)
+    → stdin JSON contains: {"hook_event_name": "SubagentStop", "transcript_path": "...", "agent_transcript_path": "<path>"}
+    → subagent_tts.py reads agent_transcript_path → extracts last assistant message → tts.py → player.py
 ```
 
 ### Stop Hook stdin Fields
@@ -86,33 +86,33 @@ The Stop hook receives these fields in stdin JSON (per Claude Code BaseHookInput
 
 Note: `last_assistant_message` is NOT a stdin field. The transcript must be read from `transcript_path` and parsed to extract the last assistant message.
 
+**Important:** Agent frontmatter `Stop` hooks are auto-converted to `SubagentStop` by Claude Code (see `registerFrontmatterHooks.ts`). The subagent's hook will receive `SubagentStop` event with `agent_transcript_path` field.
+
 ### Stop Trigger Criteria
 
-The injector reads the transcript file from `transcript_path`, extracts the last assistant message, and evaluates whether to trigger. Triggering requires BOTH conditions:
+The injector reads the transcript file from `transcript_path`, extracts the last assistant message, and evaluates whether to trigger. At least one semantic signal must be present:
 
-**Condition A (length gate):** message > 200 characters (filters out short Q&A)
+- **Completion signals**: message contains keywords like "done", "complete", "finished", "implemented", "fixed", "created", "refactored", "updated" (or Chinese equivalents: "完成", "修复", "实现", "搞定", "创建")
+- **File modification signals**: message mentions files written, edited, or created (e.g., "wrote to", "updated", "created file")
+- **Summary patterns**: message has a list/recap structure (bullet points summarizing what was done)
 
-**Condition B (at least one semantic signal):**
-- **Completion signals**: message contains keywords like "done", "complete", "finished", "implemented", "fixed", "created", "refactored" (or Chinese equivalents)
-- **File modification signals**: message mentions files written, edited, or created
-- **Tool usage signals**: message references multiple tool calls or operations
-
-Both A and B must be satisfied. If either fails, injector exits silently.
+If no semantic signal is detected, injector exits silently — no additionalContext, no subagent call. This avoids triggering on casual Q&A, explanations, or design discussions.
 
 ### Subagent Stop Hook Input Contract
 
-When the voice-buddy subagent finishes and its Stop hook fires, the hook receives stdin JSON with the standard Stop hook fields:
+When the voice-buddy subagent finishes, its frontmatter `Stop` hook is auto-converted to `SubagentStop` by Claude Code. The hook receives stdin JSON with:
 
 ```json
 {
-  "hook_event_name": "Stop",
+  "hook_event_name": "SubagentStop",
   "session_id": "...",
-  "transcript_path": "/path/to/subagent/transcript",
+  "transcript_path": "/path/to/parent/transcript",
+  "agent_transcript_path": "/path/to/subagent/transcript",
   "cwd": "..."
 }
 ```
 
-`subagent_tts.py` reads the transcript file from `transcript_path`, parses it to extract the last assistant message (which is the one sentence the subagent generated), then sends it to TTS for playback. If the transcript is missing, unreadable, or contains no assistant message, the script exits silently.
+`subagent_tts.py` reads the transcript file from `agent_transcript_path` (NOT `transcript_path`), parses it to extract the last assistant message (which is the one sentence the subagent generated), then sends it to TTS for playback. If `agent_transcript_path` is missing, falls back to `transcript_path`. If neither is available or contains no assistant message, the script exits silently.
 
 ### Module Responsibilities
 
@@ -242,7 +242,7 @@ Variable substitution is supported: `"测试全过了！{{detail}}，太棒了�
 name: voice-buddy
 description: "PROACTIVELY use this agent to generate personality-driven voice responses when tasks complete or significant milestones are reached"
 model: haiku
-allowedTools: [Bash]
+tools: Bash
 maxTurns: 2
 hooks:
   Stop:
