@@ -1,7 +1,6 @@
 """Hook entry point: read stdin JSON, dispatch by event type."""
 
 import json
-import os
 import sys
 
 from voice_buddy.context import analyze_context
