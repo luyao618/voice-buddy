@@ -106,7 +106,26 @@ def test_process_stop_event_triggers(tmp_path, capsys):
     assert exc_info.value.code == 2
 
     captured = capsys.readouterr()
-    assert "voice-buddy agent" in captured.err
+    assert "REQUIRED ACTION" in captured.err
+    assert "voice-buddy" in captured.err
+
+
+def test_process_stop_event_prefers_last_assistant_message(capsys):
+    """When last_assistant_message is in hook input, use it directly (no transcript read)."""
+    data = {
+        "hook_event_name": "Stop",
+        "transcript_path": "/nonexistent/file",
+        "last_assistant_message": "I have fixed the bug and updated 3 test files.",
+    }
+
+    import pytest
+    with pytest.raises(SystemExit) as exc_info:
+        process_stop_event(data)
+    assert exc_info.value.code == 2
+
+    captured = capsys.readouterr()
+    assert "REQUIRED ACTION" in captured.err
+    assert "fixed the bug" in captured.err
 
 
 def test_process_stop_event_stays_silent(tmp_path, capsys):
@@ -130,3 +149,23 @@ def test_process_stop_event_missing_transcript(capsys):
 
     captured = capsys.readouterr()
     assert captured.out == ""
+
+
+def test_process_stop_event_skips_when_stop_hook_active(tmp_path, capsys):
+    """When stop_hook_active is true, injector must NOT re-trigger (avoid loop)."""
+    transcript = tmp_path / "transcript.jsonl"
+    transcript.write_text(
+        '{"role": "assistant", "content": "I have implemented the feature."}\n',
+        encoding="utf-8",
+    )
+    data = {
+        "hook_event_name": "Stop",
+        "transcript_path": str(transcript),
+        "stop_hook_active": True,
+    }
+
+    # Should NOT raise SystemExit — just return silently
+    process_stop_event(data)
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
