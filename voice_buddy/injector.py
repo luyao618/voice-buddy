@@ -1,4 +1,4 @@
-"""Stop event handler: read transcript, check trigger criteria, output additionalContext."""
+"""Stop event handler: read transcript, check trigger criteria, block + inject additionalContext."""
 
 import json
 import re
@@ -66,7 +66,17 @@ def _should_trigger(message: str) -> bool:
 
 
 def process_stop_event(data: dict) -> None:
-    """Handle Stop event: check transcript, maybe output additionalContext."""
+    """Handle Stop event: check transcript, block + inject additionalContext if task completed.
+
+    When a substantive task is detected:
+    - Outputs decision "block" to prevent Claude from stopping
+    - Injects additionalContext prompting Claude to call the voice-buddy subagent
+    - Claude continues, calls subagent, subagent generates a voice response
+    - On the next Stop attempt, the transcript has changed (subagent call result),
+      so _should_trigger won't match again — Claude stops normally.
+
+    When no task is detected, outputs nothing — Claude stops normally.
+    """
     transcript_path = data.get("transcript_path", "")
     if not transcript_path:
         return
@@ -82,12 +92,16 @@ def process_stop_event(data: dict) -> None:
     summary = message[:500] if len(message) > 500 else message
 
     output = {
-        "additionalContext": (
-            f"[Voice Buddy] A task was just completed. Summary of what happened: "
-            f"{summary}\n\n"
-            f"Please call the voice-buddy agent to generate a short, "
-            f"personality-driven voice response about this completion."
-        )
+        "decision": "block",
+        "reason": "Voice Buddy is generating a voice response",
+        "hookSpecificOutput": {
+            "hookEventName": "Stop",
+            "additionalContext": (
+                f"[Voice Buddy] A task was just completed. Summary: {summary}\n\n"
+                f"Please call the voice-buddy agent to generate a short, "
+                f"personality-driven voice response about this completion."
+            ),
+        },
     }
 
     print(json.dumps(output, ensure_ascii=False))

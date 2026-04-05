@@ -66,39 +66,15 @@ def test_handle_posttoolusefailure_non_bash_stays_silent():
         mock_tts.assert_not_called()
 
 
-def test_handle_stop_with_completed_task_calls_tts(tmp_path):
-    transcript = tmp_path / "transcript.jsonl"
-    transcript.write_text(
-        '{"role": "assistant", "content": "I have implemented the feature."}\n',
-        encoding="utf-8",
-    )
+def test_handle_stop_calls_injector():
     data = {
         "hook_event_name": "Stop",
-        "transcript_path": str(transcript),
+        "transcript_path": "/tmp/transcript.json",
     }
 
-    with patch("voice_buddy.main.synthesize_to_file", return_value="/tmp/audio.mp3") as mock_tts, \
-         patch("voice_buddy.main.play_audio", return_value=True) as mock_play:
+    with patch("voice_buddy.main.handle_stop_event") as mock_injector:
         handle_hook_event(data)
-        mock_tts.assert_called_once()
-        mock_play.assert_called_once_with("/tmp/audio.mp3")
-
-
-def test_handle_stop_without_completion_stays_silent(tmp_path):
-    transcript = tmp_path / "transcript.jsonl"
-    transcript.write_text(
-        '{"role": "assistant", "content": "The answer is 42."}\n',
-        encoding="utf-8",
-    )
-    data = {
-        "hook_event_name": "Stop",
-        "transcript_path": str(transcript),
-    }
-
-    with patch("voice_buddy.main.synthesize_to_file") as mock_tts, \
-         patch("voice_buddy.main.play_audio"):
-        handle_hook_event(data)
-        mock_tts.assert_not_called()
+        mock_injector.assert_called_once_with(data)
 
 
 def test_handle_tts_failure_does_not_crash():

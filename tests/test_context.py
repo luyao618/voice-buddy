@@ -180,33 +180,9 @@ def test_sessionend():
     assert result.sub_event == "default"
 
 
-# --- Stop: reads transcript, triggers on task completion ---
+# --- Stop: returns None (handled by injector) ---
 
-def test_stop_with_completed_task(tmp_path):
-    transcript = tmp_path / "transcript.jsonl"
-    transcript.write_text(
-        '{"role": "assistant", "content": "I have implemented the feature."}\n',
-        encoding="utf-8",
-    )
-    data = {"hook_event_name": "Stop", "transcript_path": str(transcript)}
-    result = analyze_context(data)
-    assert result is not None
-    assert result.event == "stop"
-    assert result.sub_event == "task_completed"
-
-
-def test_stop_without_completion_returns_none(tmp_path):
-    transcript = tmp_path / "transcript.jsonl"
-    transcript.write_text(
-        '{"role": "assistant", "content": "The answer is 42."}\n',
-        encoding="utf-8",
-    )
-    data = {"hook_event_name": "Stop", "transcript_path": str(transcript)}
-    result = analyze_context(data)
-    assert result is None
-
-
-def test_stop_missing_transcript_returns_none():
-    data = {"hook_event_name": "Stop", "transcript_path": "/nonexistent/file"}
+def test_stop_returns_none():
+    data = {"hook_event_name": "Stop", "transcript_path": "/tmp/transcript"}
     result = analyze_context(data)
     assert result is None

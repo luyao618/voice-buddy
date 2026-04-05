@@ -91,7 +91,10 @@ def test_process_stop_event_triggers(tmp_path, capsys):
 
     captured = capsys.readouterr()
     output = json.loads(captured.out)
-    assert "additionalContext" in output
+    assert output["decision"] == "block"
+    assert "hookSpecificOutput" in output
+    assert "additionalContext" in output["hookSpecificOutput"]
+    assert output["hookSpecificOutput"]["hookEventName"] == "Stop"
 
 
 def test_process_stop_event_stays_silent(tmp_path, capsys):

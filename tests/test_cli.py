@@ -36,11 +36,11 @@ def test_setup_uses_nested_matcher_group_format(tmp_path):
     settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
 
     # Each event should have a list of matcher groups
-    for event_name in ["SessionStart", "SessionEnd", "PostToolUse", "PostToolUseFailure", "Stop"]:
+    # Stop is synchronous (async: false) so Claude reads decision + additionalContext
+    for event_name in ["SessionStart", "SessionEnd", "PostToolUse", "PostToolUseFailure"]:
         matcher_groups = settings["hooks"][event_name]
         assert len(matcher_groups) >= 1
         vb_group = [g for g in matcher_groups if g.get("_voice_buddy")][0]
-        # Must have "hooks" key containing a list of hook commands
         assert "hooks" in vb_group
         assert isinstance(vb_group["hooks"], list)
         assert len(vb_group["hooks"]) == 1
@@ -49,6 +49,11 @@ def test_setup_uses_nested_matcher_group_format(tmp_path):
         assert "voice_buddy" in hook_cmd["command"]
         assert hook_cmd["timeout"] == 5000
         assert hook_cmd["async"] is True
+
+    # Stop hook must be synchronous
+    stop_groups = settings["hooks"]["Stop"]
+    stop_vb = [g for g in stop_groups if g.get("_voice_buddy")][0]
+    assert stop_vb["hooks"][0]["async"] is False
 
 
 def test_setup_pretooluse_has_matcher(tmp_path):

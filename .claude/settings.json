@@ -76,7 +76,7 @@
             "type": "command",
             "command": "PYTHONPATH=/Users/yao/work/code/personal/Claude-Code-Voice-Buddy python3 -m voice_buddy",
             "timeout": 5000,
-            "async": true
+            "async": false
           }
         ],
         "_voice_buddy": true
