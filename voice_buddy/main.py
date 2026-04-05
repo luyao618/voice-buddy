@@ -73,6 +73,8 @@ def run() -> None:
         handle_hook_event(data)
         sys.exit(0)
 
+    except SystemExit:
+        raise  # Let sys.exit() propagate (important for exit code 2 in Stop hook)
     except json.JSONDecodeError as e:
         print(f"Error parsing JSON input: {e}", file=sys.stderr)
         sys.exit(0)

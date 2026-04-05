@@ -100,14 +100,13 @@ def test_process_stop_event_triggers(tmp_path, capsys):
     )
     data = {"hook_event_name": "Stop", "transcript_path": str(transcript)}
 
-    process_stop_event(data)
+    import pytest
+    with pytest.raises(SystemExit) as exc_info:
+        process_stop_event(data)
+    assert exc_info.value.code == 2
 
     captured = capsys.readouterr()
-    output = json.loads(captured.out)
-    assert output["decision"] == "block"
-    assert "hookSpecificOutput" in output
-    assert "additionalContext" in output["hookSpecificOutput"]
-    assert output["hookSpecificOutput"]["hookEventName"] == "Stop"
+    assert "voice-buddy agent" in captured.err
 
 
 def test_process_stop_event_stays_silent(tmp_path, capsys):

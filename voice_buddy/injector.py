@@ -97,7 +97,11 @@ def _should_trigger(message: str) -> bool:
 
 
 def process_stop_event(data: dict) -> None:
-    """Handle Stop event: check transcript, block + inject additionalContext if task completed."""
+    """Handle Stop event: block via exit code 2 to trigger subagent.
+
+    Exit code 2 prevents Claude from stopping and feeds stderr to Claude.
+    We use stderr to prompt Claude to call the voice-buddy subagent.
+    """
     from voice_buddy.main import _debug
 
     transcript_path = data.get("transcript_path", "")
@@ -116,24 +120,15 @@ def process_stop_event(data: dict) -> None:
         _debug(f"  injector: _should_trigger returned False")
         return
 
-    _debug(f"  injector: TRIGGERED! Outputting block + additionalContext")
+    _debug(f"  injector: TRIGGERED! Using exit code 2 to block and inject context")
 
-    # Truncate message for context injection (keep it concise)
     summary = message[:500] if len(message) > 500 else message
 
-    output = {
-        "decision": "block",
-        "reason": "Voice Buddy is generating a voice response",
-        "hookSpecificOutput": {
-            "hookEventName": "Stop",
-            "additionalContext": (
-                f"[Voice Buddy] A task was just completed. Summary: {summary}\n\n"
-                f"Please call the voice-buddy agent to generate a short, "
-                f"personality-driven voice response about this completion."
-            ),
-        },
-    }
-
-    json_out = json.dumps(output, ensure_ascii=False)
-    _debug(f"  injector: stdout JSON: {json_out[:200]}")
-    print(json_out)
+    # Exit code 2: Claude Code blocks the stop and feeds stderr back to Claude
+    print(
+        f"[Voice Buddy] A task was just completed. Summary: {summary}\n\n"
+        f"Please call the voice-buddy agent to generate a short, "
+        f"personality-driven voice response about this completion.",
+        file=sys.stderr,
+    )
+    sys.exit(2)
