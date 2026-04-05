@@ -1,7 +1,6 @@
 """Select template responses and perform variable substitution."""
 
 import random
-import re
 from typing import Optional
 
 from voice_buddy.config import load_templates
