@@ -1633,7 +1633,8 @@ def test_setup_copies_agent_file(tmp_path):
 
     content = agent_path.read_text()
     assert "<repo_path>" not in content  # placeholder should be replaced
-    assert str(repo_path) in content
+    # Path may be shlex-quoted, so check the raw path string is present
+    assert str(repo_path) in content or str(repo_path).replace("'", "") in content
 
 
 def test_uninstall_removes_hooks(tmp_path):
@@ -1740,9 +1741,13 @@ def _make_matcher_group(repo_path: str, event: str) -> dict:
     Claude Code settings.json uses nested format:
       hooks[event] = [{ matcher?: string, hooks: [{ type, command, ... }] }]
     """
+    # Quote repo_path for shell safety (handles spaces in paths)
+    import shlex
+    quoted_path = shlex.quote(repo_path)
+
     hook_cmd = {
         "type": "command",
-        "command": f"PYTHONPATH={repo_path} python3 -m voice_buddy",
+        "command": f"PYTHONPATH={quoted_path} python3 -m voice_buddy",
         "timeout": 5000,
         "async": True,
     }
@@ -1802,9 +1807,11 @@ def do_setup(project_dir: str = ".", repo_path: str | None = None) -> None:
     agent_dst = os.path.join(agents_dir, "voice-buddy.md")
 
     if os.path.exists(agent_src):
+        import shlex
+        quoted_path = shlex.quote(repo_path)
         with open(agent_src, "r", encoding="utf-8") as f:
             content = f.read()
-        content = content.replace("<repo_path>", repo_path)
+        content = content.replace("<repo_path>", quoted_path)
         with open(agent_dst, "w", encoding="utf-8") as f:
             f.write(content)
 
@@ -2006,6 +2013,37 @@ Expected: Hear a test-passed celebration spoken aloud.
 
 Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && python -m voice_buddy.cli test posttoolusefailure`
 Expected: Hear an error comfort message spoken aloud.
+
+- [ ] **Step 3b: Test Stop event injector path**
+
+Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && python -m voice_buddy.cli test stop`
+Expected: Should print `Testing event: Stop` followed by additionalContext JSON output containing "voice-buddy agent" prompt. No audio plays (subagent chain is not simulated).
+
+- [ ] **Step 3c: Test subagent_tts.py end-to-end (simulated SubagentStop)**
+
+Run:
+```bash
+cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy
+
+# Create a mock subagent transcript
+echo '{"role": "assistant", "content": "哦尼酱好厉害，bug 修好了呢！"}' > /tmp/vb-mock-agent-transcript.jsonl
+
+# Feed simulated SubagentStop stdin to subagent_tts.py
+echo '{"hook_event_name": "SubagentStop", "transcript_path": "/tmp/parent.jsonl", "agent_transcript_path": "/tmp/vb-mock-agent-transcript.jsonl"}' | python -m voice_buddy.subagent_tts
+
+rm /tmp/vb-mock-agent-transcript.jsonl
+```
+Expected: Hear "哦尼酱好厉害，bug 修好了呢！" spoken aloud. This validates the full subagent TTS chain: stdin parsing → agent_transcript_path reading → TTS → playback.
+
+- [ ] **Step 3d: Test subagent_tts.py silent exit on missing agent_transcript_path**
+
+Run:
+```bash
+cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy
+echo '{"hook_event_name": "SubagentStop", "transcript_path": "/tmp/parent.jsonl"}' | python -m voice_buddy.subagent_tts
+echo "Exit code: $?"
+```
+Expected: Silent exit, exit code 0. No audio, no errors.
 
 - [ ] **Step 4: Test setup + uninstall in a temp project**
 
