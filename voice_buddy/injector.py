@@ -104,15 +104,27 @@ def process_stop_event(data: dict) -> None:
     """
     from voice_buddy.main import _debug
 
-    transcript_path = data.get("transcript_path", "")
-    if not transcript_path:
-        _debug("  injector: no transcript_path")
+    # Guard: don't re-trigger if we're already inside a stop-hook retry.
+    # Claude Code sets stop_hook_active=true on the second invocation to
+    # prevent infinite blocking loops.
+    if data.get("stop_hook_active"):
+        _debug("  injector: stop_hook_active=true, skipping to avoid loop")
         return
 
-    message = extract_last_assistant_message(transcript_path)
-    if message is None:
-        _debug(f"  injector: no assistant message found in {transcript_path}")
-        return
+    # Prefer last_assistant_message from hook input (reliable, no race condition).
+    # Fall back to reading transcript file (for older Claude Code versions).
+    message = data.get("last_assistant_message")
+    if message:
+        _debug(f"  injector: using last_assistant_message from hook input")
+    else:
+        transcript_path = data.get("transcript_path", "")
+        if not transcript_path:
+            _debug("  injector: no transcript_path and no last_assistant_message")
+            return
+        message = extract_last_assistant_message(transcript_path)
+        if message is None:
+            _debug(f"  injector: no assistant message found in {transcript_path}")
+            return
 
     _debug(f"  injector: last assistant msg (first 100 chars): {message[:100]}")
 
@@ -122,13 +134,20 @@ def process_stop_event(data: dict) -> None:
 
     _debug(f"  injector: TRIGGERED! Using exit code 2 to block and inject context")
 
-    summary = message[:500] if len(message) > 500 else message
+    # Keep summary very short — agent only needs to know WHAT was done
+    summary = message[:150] if len(message) > 150 else message
 
-    # Exit code 2: Claude Code blocks the stop and feeds stderr back to Claude
+    # Exit code 2: Claude Code blocks the stop and feeds stderr back to Claude.
+    # Two-step instruction: 1) call agent to get text, 2) use Bash to TTS it.
     print(
-        f"[Voice Buddy] A task was just completed. Summary: {summary}\n\n"
-        f"Please call the voice-buddy agent to generate a short, "
-        f"personality-driven voice response about this completion.",
+        f"REQUIRED ACTION — two steps:\n"
+        f"1. Call the voice-buddy agent: Agent tool, prompt=\"{summary}\"\n"
+        f"2. After agent returns a sentence, call Bash to speak it:\n"
+        f"   PYTHONPATH=/Users/yao/work/code/personal/Claude-Code-Voice-Buddy python3 -c \"\n"
+        f"   from voice_buddy.tts import synthesize_to_file; from voice_buddy.player import play_audio\n"
+        f"   a = synthesize_to_file('<AGENT_RESPONSE>'); play_audio(a) if a else None\"\n"
+        f"Replace <AGENT_RESPONSE> with the agent's actual output sentence.\n"
+        f"Do both steps. Do not skip step 2.",
         file=sys.stderr,
     )
     sys.exit(2)
