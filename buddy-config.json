@@ -1,0 +1,10 @@
+{
+  "character_name": "小星",
+  "language": "zh-CN",
+  "tts": {
+    "provider": "edge-tts",
+    "voice": "zh-CN-XiaoyiNeural",
+    "rate": "+10%",
+    "pitch": "+5Hz"
+  }
+}

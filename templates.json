@@ -1,0 +1,26 @@
+{
+  "pretooluse": {
+    "git_commit": ["要提交代码咯，加油！", "代码提交中~"],
+    "git_push": ["代码要飞出去咯！"],
+    "git_pull": ["拉取最新代码中~"],
+    "test_run": ["开始跑测试了哦~", "测试跑起来咯！"],
+    "npm_install": ["安装依赖中~"],
+    "npm_build": ["开始构建咯~"],
+    "docker": ["Docker 启动中~"]
+  },
+  "posttooluse": {
+    "test_passed": ["测试全过了！太棒了！", "哦尼酱好厉害，全绿了呢！"],
+    "test_failed": ["有测试没过呢...不过别担心哦~"],
+    "git_success": ["搞定啦！", "操作完成了哟~"]
+  },
+  "posttoolusefailure": {
+    "timeout": ["等太久了呜呜...换个方式试试？"],
+    "default": ["出了点小问题...别担心哦~"]
+  },
+  "sessionstart": {
+    "default": ["欢迎回来，哦尼酱！今天也要加油哦~", "哦尼酱来啦！开始干活吧~"]
+  },
+  "sessionend": {
+    "default": ["辛苦啦！下次见哦~", "拜拜，哦尼酱~"]
+  }
+}
