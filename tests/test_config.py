@@ -1,5 +1,3 @@
-import json
-from pathlib import Path
 from voice_buddy.config import load_config, load_templates
 
 
