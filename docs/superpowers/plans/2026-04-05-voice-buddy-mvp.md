@@ -8,6 +8,8 @@
 
 **Tech Stack:** Python 3, edge-tts, subprocess (audio playback), json (stdin parsing), re (pattern matching)
 
+**Entry Point Strategy:** All hook commands use `PYTHONPATH=<repo> python3 -m <module>` pattern (never direct file paths). Main hook uses `python3 -m voice_buddy`, subagent hook uses `python3 -m voice_buddy.subagent_tts`. Both modules have `if __name__ == "__main__"` guards.
+
 **Spec:** `docs/superpowers/specs/2026-04-05-voice-buddy-mvp-design.md`
 
 ---
@@ -1543,7 +1545,8 @@ def test_setup_creates_settings_json(tmp_path):
     assert "Stop" in settings["hooks"]
 
 
-def test_setup_hooks_have_marker(tmp_path):
+def test_setup_uses_nested_matcher_group_format(tmp_path):
+    """Verify hooks use the correct nested format: [{matcher?, hooks: [{type, command}]}]"""
     project_dir = tmp_path / "myproject"
     project_dir.mkdir()
     (project_dir / ".claude").mkdir()
@@ -1554,10 +1557,20 @@ def test_setup_hooks_have_marker(tmp_path):
 
     settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
 
-    for event_name, hooks in settings["hooks"].items():
-        for hook in hooks:
-            if isinstance(hook, dict) and "voice_buddy" in hook.get("command", ""):
-                assert hook.get("_voice_buddy") is True
+    # Each event should have a list of matcher groups
+    for event_name in ["SessionStart", "SessionEnd", "PostToolUse", "PostToolUseFailure", "Stop"]:
+        matcher_groups = settings["hooks"][event_name]
+        assert len(matcher_groups) >= 1
+        vb_group = [g for g in matcher_groups if g.get("_voice_buddy")][0]
+        # Must have "hooks" key containing a list of hook commands
+        assert "hooks" in vb_group
+        assert isinstance(vb_group["hooks"], list)
+        assert len(vb_group["hooks"]) == 1
+        hook_cmd = vb_group["hooks"][0]
+        assert hook_cmd["type"] == "command"
+        assert "voice_buddy" in hook_cmd["command"]
+        assert hook_cmd["timeout"] == 5000
+        assert hook_cmd["async"] is True
 
 
 def test_setup_pretooluse_has_matcher(tmp_path):
@@ -1571,9 +1584,9 @@ def test_setup_pretooluse_has_matcher(tmp_path):
 
     settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
 
-    pretooluse_hooks = settings["hooks"]["PreToolUse"]
-    voice_buddy_hook = [h for h in pretooluse_hooks if h.get("_voice_buddy")][0]
-    assert voice_buddy_hook.get("matcher") == "Bash"
+    pretooluse_groups = settings["hooks"]["PreToolUse"]
+    vb_group = [g for g in pretooluse_groups if g.get("_voice_buddy")][0]
+    assert vb_group.get("matcher") == "Bash"
 
 
 def test_setup_preserves_existing_hooks(tmp_path):
@@ -1584,7 +1597,12 @@ def test_setup_preserves_existing_hooks(tmp_path):
     existing_settings = {
         "hooks": {
             "SessionStart": [
-                {"type": "command", "command": "echo existing", "timeout": 3000}
+                {
+                    "matcher": "",
+                    "hooks": [
+                        {"type": "command", "command": "echo existing", "timeout": 3000}
+                    ]
+                }
             ]
         }
     }
@@ -1596,9 +1614,9 @@ def test_setup_preserves_existing_hooks(tmp_path):
 
     settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
 
-    session_hooks = settings["hooks"]["SessionStart"]
-    assert len(session_hooks) == 2  # existing + voice buddy
-    assert session_hooks[0]["command"] == "echo existing"
+    session_groups = settings["hooks"]["SessionStart"]
+    assert len(session_groups) == 2  # existing + voice buddy
+    assert session_groups[0]["hooks"][0]["command"] == "echo existing"
 
 
 def test_setup_copies_agent_file(tmp_path):
@@ -1632,10 +1650,10 @@ def test_uninstall_removes_hooks(tmp_path):
 
     settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
 
-    # All hook lists should be empty (no voice buddy entries)
-    for event_name, hooks in settings["hooks"].items():
-        for hook in hooks:
-            assert hook.get("_voice_buddy") is not True
+    # All hook lists should have no voice buddy matcher groups
+    for event_name, groups in settings["hooks"].items():
+        for group in groups:
+            assert group.get("_voice_buddy") is not True
 
 
 def test_uninstall_preserves_other_hooks(tmp_path):
@@ -1646,7 +1664,12 @@ def test_uninstall_preserves_other_hooks(tmp_path):
     existing_settings = {
         "hooks": {
             "SessionStart": [
-                {"type": "command", "command": "echo existing", "timeout": 3000}
+                {
+                    "matcher": "",
+                    "hooks": [
+                        {"type": "command", "command": "echo existing", "timeout": 3000}
+                    ]
+                }
             ]
         }
     }
@@ -1659,9 +1682,9 @@ def test_uninstall_preserves_other_hooks(tmp_path):
 
     settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
 
-    session_hooks = settings["hooks"]["SessionStart"]
-    assert len(session_hooks) == 1
-    assert session_hooks[0]["command"] == "echo existing"
+    session_groups = settings["hooks"]["SessionStart"]
+    assert len(session_groups) == 1
+    assert session_groups[0]["hooks"][0]["command"] == "echo existing"
 
 
 def test_uninstall_removes_agent_file(tmp_path):
@@ -1711,18 +1734,28 @@ _HOOK_EVENTS = [
 ]
 
 
-def _make_hook_entry(repo_path: str, event: str) -> dict:
-    """Create a hook entry dict for the given event."""
-    entry = {
+def _make_matcher_group(repo_path: str, event: str) -> dict:
+    """Create a matcher group dict for the given event.
+
+    Claude Code settings.json uses nested format:
+      hooks[event] = [{ matcher?: string, hooks: [{ type, command, ... }] }]
+    """
+    hook_cmd = {
         "type": "command",
         "command": f"PYTHONPATH={repo_path} python3 -m voice_buddy",
         "timeout": 5000,
         "async": True,
-        "_voice_buddy": True,
     }
+
+    matcher_group = {
+        "hooks": [hook_cmd],
+        "_voice_buddy": True,  # Marker for reliable uninstall
+    }
+
     if event == "PreToolUse":
-        entry["matcher"] = "Bash"
-    return entry
+        matcher_group["matcher"] = "Bash"
+
+    return matcher_group
 
 
 def do_setup(project_dir: str = ".", repo_path: str | None = None) -> None:
@@ -1747,15 +1780,15 @@ def do_setup(project_dir: str = ".", repo_path: str | None = None) -> None:
     if "hooks" not in settings:
         settings["hooks"] = {}
 
-    # Add hook entries for each event
+    # Add matcher groups for each event
     for event in _HOOK_EVENTS:
         if event not in settings["hooks"]:
             settings["hooks"][event] = []
 
-        # Don't add duplicate voice-buddy hooks
-        existing_vb = [h for h in settings["hooks"][event] if h.get("_voice_buddy")]
+        # Don't add duplicate voice-buddy matcher groups
+        existing_vb = [g for g in settings["hooks"][event] if g.get("_voice_buddy")]
         if not existing_vb:
-            settings["hooks"][event].append(_make_hook_entry(repo_path, event))
+            settings["hooks"][event].append(_make_matcher_group(repo_path, event))
 
     # Write settings
     with open(settings_path, "w", encoding="utf-8") as f:
@@ -1792,10 +1825,10 @@ def do_uninstall(project_dir: str = ".") -> None:
     with open(settings_path, "r", encoding="utf-8") as f:
         settings = json.load(f)
 
-    # Remove voice-buddy hook entries
+    # Remove voice-buddy matcher groups (identified by _voice_buddy marker)
     hooks = settings.get("hooks", {})
     for event in list(hooks.keys()):
-        hooks[event] = [h for h in hooks[event] if not h.get("_voice_buddy")]
+        hooks[event] = [g for g in hooks[event] if not g.get("_voice_buddy")]
 
     with open(settings_path, "w", encoding="utf-8") as f:
         json.dump(settings, f, indent=2, ensure_ascii=False)
@@ -1888,12 +1921,20 @@ def main() -> None:
         "--global", dest="is_global", action="store_true",
         help="Install to ~/.claude/ instead of project .claude/",
     )
+    setup_parser.add_argument(
+        "--project", dest="project_dir", default=None,
+        help="Target project directory (default: current directory)",
+    )
 
     # uninstall
     uninstall_parser = subparsers.add_parser("uninstall", help="Remove hooks from a project")
     uninstall_parser.add_argument(
         "--global", dest="is_global", action="store_true",
         help="Uninstall from ~/.claude/ instead of project .claude/",
+    )
+    uninstall_parser.add_argument(
+        "--project", dest="project_dir", default=None,
+        help="Target project directory (default: current directory)",
     )
 
     # test
@@ -1903,10 +1944,20 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "setup":
-        project_dir = os.path.expanduser("~") if args.is_global else "."
+        if args.is_global:
+            project_dir = os.path.expanduser("~")
+        elif args.project_dir:
+            project_dir = args.project_dir
+        else:
+            project_dir = "."
         do_setup(project_dir=project_dir)
     elif args.command == "uninstall":
-        project_dir = os.path.expanduser("~") if args.is_global else "."
+        if args.is_global:
+            project_dir = os.path.expanduser("~")
+        elif args.project_dir:
+            project_dir = args.project_dir
+        else:
+            project_dir = "."
         do_uninstall(project_dir=project_dir)
     elif args.command == "test":
         do_test(args.event)
@@ -1960,14 +2011,16 @@ Expected: Hear an error comfort message spoken aloud.
 
 Run:
 ```bash
-cd /tmp && mkdir vb-test-project && cd vb-test-project && mkdir -p .claude
-python -m voice_buddy.cli setup
-cat .claude/settings.json
-ls .claude/agents/
-python -m voice_buddy.cli uninstall
-cat .claude/settings.json
-ls .claude/agents/ 2>/dev/null || echo "agents dir cleaned"
-cd / && rm -rf /tmp/vb-test-project
+# All commands run from the Voice Buddy repo directory
+cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy
+mkdir -p /tmp/vb-test-project/.claude
+python -m voice_buddy.cli setup --project /tmp/vb-test-project
+cat /tmp/vb-test-project/.claude/settings.json
+ls /tmp/vb-test-project/.claude/agents/
+python -m voice_buddy.cli uninstall --project /tmp/vb-test-project
+cat /tmp/vb-test-project/.claude/settings.json
+ls /tmp/vb-test-project/.claude/agents/ 2>/dev/null || echo "agents dir cleaned"
+rm -rf /tmp/vb-test-project
 ```
 
 Expected:
@@ -2007,19 +2060,24 @@ cd Claude-Code-Voice-Buddy
 # Install dependencies
 pip install -r requirements.txt
 
-# Install to your project
-cd /path/to/your/project
-python -m voice_buddy.cli setup
+# Install to your project (run from the Voice Buddy repo)
+python -m voice_buddy.cli setup --project /path/to/your/project
 
-# Test it
+# Or install globally
+python -m voice_buddy.cli setup --global
+
+# Test it (run from the Voice Buddy repo)
 python -m voice_buddy.cli test sessionstart
 ```
 
 ## Commands
 
+All commands must be run from the Voice Buddy repo directory (or with PYTHONPATH set).
+
 | Command | Description |
 |---------|-------------|
 | `python -m voice_buddy.cli setup` | Install hooks to current project |
+| `python -m voice_buddy.cli setup --project /path` | Install hooks to a specific project |
 | `python -m voice_buddy.cli setup --global` | Install hooks globally |
 | `python -m voice_buddy.cli uninstall` | Remove hooks from current project |
 | `python -m voice_buddy.cli test <event>` | Test a hook event |
