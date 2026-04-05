@@ -8,8 +8,6 @@
 
 **Tech Stack:** Python 3, edge-tts, subprocess (audio playback), json (stdin parsing), re (pattern matching)
 
-**Entry Point Strategy:** All hook commands use `PYTHONPATH=<repo> python3 -m <module>` pattern (never direct file paths). Main hook uses `python3 -m voice_buddy`, subagent hook uses `python3 -m voice_buddy.subagent_tts`. Both modules have `if __name__ == "__main__"` guards.
-
 **Spec:** `docs/superpowers/specs/2026-04-05-voice-buddy-mvp-design.md`
 
 ---
@@ -59,12 +57,6 @@ Claude-Code-Voice-Buddy/
 - Create: `tests/test_config.py`
 
 - [ ] **Step 1: Create requirements.txt**
-
-```
-edge-tts
-```
-
-- [ ] **Step 1b: Create requirements-dev.txt**
 
 ```
 edge-tts
@@ -208,7 +200,7 @@ Expected: 4 tests PASS
 - [ ] **Step 10: Commit**
 
 ```bash
-git add requirements.txt requirements-dev.txt buddy-config.json templates.json voice_buddy/__init__.py voice_buddy/config.py tests/__init__.py tests/test_config.py
+git add requirements.txt buddy-config.json templates.json voice_buddy/__init__.py voice_buddy/config.py tests/__init__.py tests/test_config.py
 git commit -m "feat: add project skeleton with config and templates"
 ```
 
@@ -830,7 +822,7 @@ def play_audio(file_path: str | Path) -> bool:
         return False
 ```
 
-Note: player.py is not unit-tested because it depends on system audio hardware. It will be integration-tested via `voice-buddy test` CLI command. Windows support is limited: winsound only plays WAV, but edge-tts outputs MP3. Windows users will need ffplay or mpg123 installed. This is acceptable for MVP (primary target is macOS).
+Note: player.py is not unit-tested because it depends on system audio hardware. It will be integration-tested via `voice-buddy test` CLI command.
 
 - [ ] **Step 2: Commit**
 
@@ -858,7 +850,6 @@ Create `voice_buddy/tts.py`:
 """Text-to-speech synthesis using edge-tts."""
 
 import asyncio
-import os
 import sys
 import tempfile
 from pathlib import Path
@@ -886,40 +877,18 @@ def synthesize_to_file(text: str) -> str | None:
     """Synthesize text to a temporary audio file.
 
     Returns the path to the generated .mp3 file, or None on failure.
-    The caller is responsible for cleanup, but since playback is async
-    (Popen with start_new_session), we schedule cleanup after a delay.
     """
     try:
-        # Create a temp file that won't be auto-deleted (async playback needs it)
+        # Create a temp file that won't be auto-deleted
         tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
         tmp_path = tmp.name
         tmp.close()
 
         asyncio.run(_synthesize(text, tmp_path))
-
-        # Schedule cleanup after 30 seconds (enough for playback to finish)
-        _schedule_cleanup(tmp_path, delay=30)
-
         return tmp_path
     except Exception as e:
         print(f"TTS synthesis failed: {e}", file=sys.stderr)
         return None
-
-
-def _schedule_cleanup(file_path: str, delay: int = 30) -> None:
-    """Delete temp file after a delay, in a background thread."""
-    import threading
-
-    def _cleanup():
-        import time
-        time.sleep(delay)
-        try:
-            os.remove(file_path)
-        except OSError:
-            pass
-
-    t = threading.Thread(target=_cleanup, daemon=True)
-    t.start()
 ```
 
 Note: tts.py is not unit-tested because it requires network access to Microsoft's edge-tts service. It will be integration-tested via `voice-buddy test` CLI command.
@@ -1146,7 +1115,7 @@ Create `tests/test_injector.py`:
 ```python
 import json
 import os
-from voice_buddy.injector import process_stop_event, extract_last_assistant_message, _should_trigger
+from voice_buddy.injector import process_stop_event, _extract_last_assistant_message, _should_trigger
 
 
 # --- Transcript parsing ---
@@ -1158,7 +1127,7 @@ def test_extract_last_assistant_message_from_jsonl(tmp_path):
         '{"role": "assistant", "content": "I have fixed the bug in utils.py and updated the tests."}\n',
         encoding="utf-8",
     )
-    result = extract_last_assistant_message(str(transcript))
+    result = _extract_last_assistant_message(str(transcript))
     assert result == "I have fixed the bug in utils.py and updated the tests."
 
 
@@ -1170,7 +1139,7 @@ def test_extract_last_assistant_message_multiple_messages(tmp_path):
         '{"role": "assistant", "content": "Done! I have implemented the feature and created 3 new files."}\n',
         encoding="utf-8",
     )
-    result = extract_last_assistant_message(str(transcript))
+    result = _extract_last_assistant_message(str(transcript))
     assert result == "Done! I have implemented the feature and created 3 new files."
 
 
@@ -1180,12 +1149,12 @@ def test_extract_last_assistant_message_no_assistant(tmp_path):
         '{"role": "user", "content": "hello"}\n',
         encoding="utf-8",
     )
-    result = extract_last_assistant_message(str(transcript))
+    result = _extract_last_assistant_message(str(transcript))
     assert result is None
 
 
 def test_extract_last_assistant_message_missing_file():
-    result = extract_last_assistant_message("/nonexistent/path/transcript.jsonl")
+    result = _extract_last_assistant_message("/nonexistent/path/transcript.jsonl")
     assert result is None
 
 
@@ -1299,7 +1268,7 @@ _FILE_MOD = re.compile(
 )
 
 
-def extract_last_assistant_message(transcript_path: str) -> Optional[str]:
+def _extract_last_assistant_message(transcript_path: str) -> Optional[str]:
     """Read transcript file and extract the last assistant message.
 
     The transcript is expected to be JSONL format with {role, content} objects.
@@ -1346,7 +1315,7 @@ def process_stop_event(data: dict) -> None:
     if not transcript_path:
         return
 
-    message = extract_last_assistant_message(transcript_path)
+    message = _extract_last_assistant_message(transcript_path)
     if message is None:
         return
 
@@ -1403,7 +1372,7 @@ This script is invoked by the subagent's hook, NOT by the main hook entry point.
 import json
 import sys
 
-from voice_buddy.injector import extract_last_assistant_message
+from voice_buddy.injector import _extract_last_assistant_message
 from voice_buddy.tts import synthesize_to_file
 from voice_buddy.player import play_audio
 
@@ -1422,7 +1391,7 @@ def main() -> None:
         if not transcript_path:
             sys.exit(0)
 
-        message = extract_last_assistant_message(transcript_path)
+        message = _extract_last_assistant_message(transcript_path)
         if not message:
             sys.exit(0)
 
@@ -1442,7 +1411,7 @@ if __name__ == "__main__":
     main()
 ```
 
-Note: This script is not unit-tested because it's a thin integration layer that combines already-tested modules (injector.extract_last_assistant_message, tts.synthesize_to_file, player.play_audio). It will be verified through end-to-end testing with Claude Code.
+Note: This script is not unit-tested because it's a thin integration layer that combines already-tested modules (injector._extract_last_assistant_message, tts.synthesize_to_file, player.play_audio). It will be verified through end-to-end testing with Claude Code.
 
 - [ ] **Step 2: Commit**
 
@@ -1472,7 +1441,7 @@ maxTurns: 2
 hooks:
   Stop:
     - type: command
-      command: "PYTHONPATH=<repo_path> python3 -m voice_buddy.subagent_tts"
+      command: "python3 <repo_path>/voice_buddy/subagent_tts.py"
       timeout: 5000
       async: true
 ---
@@ -1509,8 +1478,6 @@ git commit -m "feat: add voice-buddy subagent definition"
 
 ## Task 10: CLI - Setup and Uninstall
 
-**Depends on:** Task 9 (agent/voice-buddy.md must exist for setup tests)
-
 **Files:**
 - Create: `voice_buddy/cli.py`
 - Create: `tests/test_cli.py`
@@ -1545,8 +1512,7 @@ def test_setup_creates_settings_json(tmp_path):
     assert "Stop" in settings["hooks"]
 
 
-def test_setup_uses_nested_matcher_group_format(tmp_path):
-    """Verify hooks use the correct nested format: [{matcher?, hooks: [{type, command}]}]"""
+def test_setup_hooks_have_marker(tmp_path):
     project_dir = tmp_path / "myproject"
     project_dir.mkdir()
     (project_dir / ".claude").mkdir()
@@ -1557,20 +1523,10 @@ def test_setup_uses_nested_matcher_group_format(tmp_path):
 
     settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
 
-    # Each event should have a list of matcher groups
-    for event_name in ["SessionStart", "SessionEnd", "PostToolUse", "PostToolUseFailure", "Stop"]:
-        matcher_groups = settings["hooks"][event_name]
-        assert len(matcher_groups) >= 1
-        vb_group = [g for g in matcher_groups if g.get("_voice_buddy")][0]
-        # Must have "hooks" key containing a list of hook commands
-        assert "hooks" in vb_group
-        assert isinstance(vb_group["hooks"], list)
-        assert len(vb_group["hooks"]) == 1
-        hook_cmd = vb_group["hooks"][0]
-        assert hook_cmd["type"] == "command"
-        assert "voice_buddy" in hook_cmd["command"]
-        assert hook_cmd["timeout"] == 5000
-        assert hook_cmd["async"] is True
+    for event_name, hooks in settings["hooks"].items():
+        for hook in hooks:
+            if isinstance(hook, dict) and "voice_buddy" in hook.get("command", ""):
+                assert hook.get("_voice_buddy") is True
 
 
 def test_setup_pretooluse_has_matcher(tmp_path):
@@ -1584,9 +1540,9 @@ def test_setup_pretooluse_has_matcher(tmp_path):
 
     settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
 
-    pretooluse_groups = settings["hooks"]["PreToolUse"]
-    vb_group = [g for g in pretooluse_groups if g.get("_voice_buddy")][0]
-    assert vb_group.get("matcher") == "Bash"
+    pretooluse_hooks = settings["hooks"]["PreToolUse"]
+    voice_buddy_hook = [h for h in pretooluse_hooks if h.get("_voice_buddy")][0]
+    assert voice_buddy_hook.get("matcher") == "Bash"
 
 
 def test_setup_preserves_existing_hooks(tmp_path):
@@ -1597,12 +1553,7 @@ def test_setup_preserves_existing_hooks(tmp_path):
     existing_settings = {
         "hooks": {
             "SessionStart": [
-                {
-                    "matcher": "",
-                    "hooks": [
-                        {"type": "command", "command": "echo existing", "timeout": 3000}
-                    ]
-                }
+                {"type": "command", "command": "echo existing", "timeout": 3000}
             ]
         }
     }
@@ -1614,9 +1565,9 @@ def test_setup_preserves_existing_hooks(tmp_path):
 
     settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
 
-    session_groups = settings["hooks"]["SessionStart"]
-    assert len(session_groups) == 2  # existing + voice buddy
-    assert session_groups[0]["hooks"][0]["command"] == "echo existing"
+    session_hooks = settings["hooks"]["SessionStart"]
+    assert len(session_hooks) == 2  # existing + voice buddy
+    assert session_hooks[0]["command"] == "echo existing"
 
 
 def test_setup_copies_agent_file(tmp_path):
@@ -1633,8 +1584,7 @@ def test_setup_copies_agent_file(tmp_path):
 
     content = agent_path.read_text()
     assert "<repo_path>" not in content  # placeholder should be replaced
-    # Path may be shlex-quoted, so check the raw path string is present
-    assert str(repo_path) in content or str(repo_path).replace("'", "") in content
+    assert str(repo_path) in content
 
 
 def test_uninstall_removes_hooks(tmp_path):
@@ -1651,10 +1601,10 @@ def test_uninstall_removes_hooks(tmp_path):
 
     settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
 
-    # All hook lists should have no voice buddy matcher groups
-    for event_name, groups in settings["hooks"].items():
-        for group in groups:
-            assert group.get("_voice_buddy") is not True
+    # All hook lists should be empty (no voice buddy entries)
+    for event_name, hooks in settings["hooks"].items():
+        for hook in hooks:
+            assert hook.get("_voice_buddy") is not True
 
 
 def test_uninstall_preserves_other_hooks(tmp_path):
@@ -1665,12 +1615,7 @@ def test_uninstall_preserves_other_hooks(tmp_path):
     existing_settings = {
         "hooks": {
             "SessionStart": [
-                {
-                    "matcher": "",
-                    "hooks": [
-                        {"type": "command", "command": "echo existing", "timeout": 3000}
-                    ]
-                }
+                {"type": "command", "command": "echo existing", "timeout": 3000}
             ]
         }
     }
@@ -1683,9 +1628,9 @@ def test_uninstall_preserves_other_hooks(tmp_path):
 
     settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
 
-    session_groups = settings["hooks"]["SessionStart"]
-    assert len(session_groups) == 1
-    assert session_groups[0]["hooks"][0]["command"] == "echo existing"
+    session_hooks = settings["hooks"]["SessionStart"]
+    assert len(session_hooks) == 1
+    assert session_hooks[0]["command"] == "echo existing"
 
 
 def test_uninstall_removes_agent_file(tmp_path):
@@ -1735,32 +1680,18 @@ _HOOK_EVENTS = [
 ]
 
 
-def _make_matcher_group(repo_path: str, event: str) -> dict:
-    """Create a matcher group dict for the given event.
-
-    Claude Code settings.json uses nested format:
-      hooks[event] = [{ matcher?: string, hooks: [{ type, command, ... }] }]
-    """
-    # Quote repo_path for shell safety (handles spaces in paths)
-    import shlex
-    quoted_path = shlex.quote(repo_path)
-
-    hook_cmd = {
+def _make_hook_entry(repo_path: str, event: str) -> dict:
+    """Create a hook entry dict for the given event."""
+    entry = {
         "type": "command",
-        "command": f"PYTHONPATH={quoted_path} python3 -m voice_buddy",
+        "command": f"python3 {repo_path}/voice_buddy/__main__.py",
         "timeout": 5000,
         "async": True,
+        "_voice_buddy": True,
     }
-
-    matcher_group = {
-        "hooks": [hook_cmd],
-        "_voice_buddy": True,  # Marker for reliable uninstall
-    }
-
     if event == "PreToolUse":
-        matcher_group["matcher"] = "Bash"
-
-    return matcher_group
+        entry["matcher"] = "Bash"
+    return entry
 
 
 def do_setup(project_dir: str = ".", repo_path: str | None = None) -> None:
@@ -1785,15 +1716,15 @@ def do_setup(project_dir: str = ".", repo_path: str | None = None) -> None:
     if "hooks" not in settings:
         settings["hooks"] = {}
 
-    # Add matcher groups for each event
+    # Add hook entries for each event
     for event in _HOOK_EVENTS:
         if event not in settings["hooks"]:
             settings["hooks"][event] = []
 
-        # Don't add duplicate voice-buddy matcher groups
-        existing_vb = [g for g in settings["hooks"][event] if g.get("_voice_buddy")]
+        # Don't add duplicate voice-buddy hooks
+        existing_vb = [h for h in settings["hooks"][event] if h.get("_voice_buddy")]
         if not existing_vb:
-            settings["hooks"][event].append(_make_matcher_group(repo_path, event))
+            settings["hooks"][event].append(_make_hook_entry(repo_path, event))
 
     # Write settings
     with open(settings_path, "w", encoding="utf-8") as f:
@@ -1807,11 +1738,9 @@ def do_setup(project_dir: str = ".", repo_path: str | None = None) -> None:
     agent_dst = os.path.join(agents_dir, "voice-buddy.md")
 
     if os.path.exists(agent_src):
-        import shlex
-        quoted_path = shlex.quote(repo_path)
         with open(agent_src, "r", encoding="utf-8") as f:
             content = f.read()
-        content = content.replace("<repo_path>", quoted_path)
+        content = content.replace("<repo_path>", repo_path)
         with open(agent_dst, "w", encoding="utf-8") as f:
             f.write(content)
 
@@ -1832,10 +1761,10 @@ def do_uninstall(project_dir: str = ".") -> None:
     with open(settings_path, "r", encoding="utf-8") as f:
         settings = json.load(f)
 
-    # Remove voice-buddy matcher groups (identified by _voice_buddy marker)
+    # Remove voice-buddy hook entries
     hooks = settings.get("hooks", {})
     for event in list(hooks.keys()):
-        hooks[event] = [g for g in hooks[event] if not g.get("_voice_buddy")]
+        hooks[event] = [h for h in hooks[event] if not h.get("_voice_buddy")]
 
     with open(settings_path, "w", encoding="utf-8") as f:
         json.dump(settings, f, indent=2, ensure_ascii=False)
@@ -1880,25 +1809,15 @@ def do_test(event: str) -> None:
             "error": "Command failed with exit code 1",
             "error_type": "command_error",
         },
+        "stop": {
+            "hook_event_name": "Stop",
+            "transcript_path": "/tmp/voice-buddy-test-transcript",
+            "session_id": "test",
+            "cwd": os.getcwd(),
+        },
     }
 
     event_lower = event.lower()
-
-    # Special handling for stop: create a real mock transcript
-    if event_lower == "stop":
-        import tempfile
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".jsonl", delete=False, encoding="utf-8",
-        )
-        tmp.write('{"role": "user", "content": "fix the bug in parser.py"}\n')
-        tmp.write('{"role": "assistant", "content": "I have fixed the bug in parser.py and updated the tests. All 12 tests pass now."}\n')
-        tmp.close()
-        mock_data["stop"] = {
-            "hook_event_name": "Stop",
-            "transcript_path": tmp.name,
-            "session_id": "test",
-            "cwd": os.getcwd(),
-        }
     if event_lower not in mock_data:
         print(f"Unknown event: {event}", file=sys.stderr)
         print(f"Available: {', '.join(mock_data.keys())}", file=sys.stderr)
@@ -1928,20 +1847,12 @@ def main() -> None:
         "--global", dest="is_global", action="store_true",
         help="Install to ~/.claude/ instead of project .claude/",
     )
-    setup_parser.add_argument(
-        "--project", dest="project_dir", default=None,
-        help="Target project directory (default: current directory)",
-    )
 
     # uninstall
     uninstall_parser = subparsers.add_parser("uninstall", help="Remove hooks from a project")
     uninstall_parser.add_argument(
         "--global", dest="is_global", action="store_true",
         help="Uninstall from ~/.claude/ instead of project .claude/",
-    )
-    uninstall_parser.add_argument(
-        "--project", dest="project_dir", default=None,
-        help="Target project directory (default: current directory)",
     )
 
     # test
@@ -1951,20 +1862,10 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "setup":
-        if args.is_global:
-            project_dir = os.path.expanduser("~")
-        elif args.project_dir:
-            project_dir = args.project_dir
-        else:
-            project_dir = "."
+        project_dir = os.path.expanduser("~") if args.is_global else "."
         do_setup(project_dir=project_dir)
     elif args.command == "uninstall":
-        if args.is_global:
-            project_dir = os.path.expanduser("~")
-        elif args.project_dir:
-            project_dir = args.project_dir
-        else:
-            project_dir = "."
+        project_dir = os.path.expanduser("~") if args.is_global else "."
         do_uninstall(project_dir=project_dir)
     elif args.command == "test":
         do_test(args.event)
@@ -2014,51 +1915,18 @@ Expected: Hear a test-passed celebration spoken aloud.
 Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && python -m voice_buddy.cli test posttoolusefailure`
 Expected: Hear an error comfort message spoken aloud.
 
-- [ ] **Step 3b: Test Stop event injector path**
-
-Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && python -m voice_buddy.cli test stop`
-Expected: Should print `Testing event: Stop` followed by additionalContext JSON output containing "voice-buddy agent" prompt. No audio plays (subagent chain is not simulated).
-
-- [ ] **Step 3c: Test subagent_tts.py end-to-end (simulated SubagentStop)**
-
-Run:
-```bash
-cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy
-
-# Create a mock subagent transcript
-echo '{"role": "assistant", "content": "哦尼酱好厉害，bug 修好了呢！"}' > /tmp/vb-mock-agent-transcript.jsonl
-
-# Feed simulated SubagentStop stdin to subagent_tts.py
-echo '{"hook_event_name": "SubagentStop", "transcript_path": "/tmp/parent.jsonl", "agent_transcript_path": "/tmp/vb-mock-agent-transcript.jsonl"}' | python -m voice_buddy.subagent_tts
-
-rm /tmp/vb-mock-agent-transcript.jsonl
-```
-Expected: Hear "哦尼酱好厉害，bug 修好了呢！" spoken aloud. This validates the full subagent TTS chain: stdin parsing → agent_transcript_path reading → TTS → playback.
-
-- [ ] **Step 3d: Test subagent_tts.py silent exit on missing agent_transcript_path**
-
-Run:
-```bash
-cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy
-echo '{"hook_event_name": "SubagentStop", "transcript_path": "/tmp/parent.jsonl"}' | python -m voice_buddy.subagent_tts
-echo "Exit code: $?"
-```
-Expected: Silent exit, exit code 0. No audio, no errors.
-
 - [ ] **Step 4: Test setup + uninstall in a temp project**
 
 Run:
 ```bash
-# All commands run from the Voice Buddy repo directory
-cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy
-mkdir -p /tmp/vb-test-project/.claude
-python -m voice_buddy.cli setup --project /tmp/vb-test-project
-cat /tmp/vb-test-project/.claude/settings.json
-ls /tmp/vb-test-project/.claude/agents/
-python -m voice_buddy.cli uninstall --project /tmp/vb-test-project
-cat /tmp/vb-test-project/.claude/settings.json
-ls /tmp/vb-test-project/.claude/agents/ 2>/dev/null || echo "agents dir cleaned"
-rm -rf /tmp/vb-test-project
+cd /tmp && mkdir vb-test-project && cd vb-test-project && mkdir -p .claude
+python -m voice_buddy.cli setup
+cat .claude/settings.json
+ls .claude/agents/
+python -m voice_buddy.cli uninstall
+cat .claude/settings.json
+ls .claude/agents/ 2>/dev/null || echo "agents dir cleaned"
+cd / && rm -rf /tmp/vb-test-project
 ```
 
 Expected:
@@ -2098,24 +1966,19 @@ cd Claude-Code-Voice-Buddy
 # Install dependencies
 pip install -r requirements.txt
 
-# Install to your project (run from the Voice Buddy repo)
-python -m voice_buddy.cli setup --project /path/to/your/project
+# Install to your project
+cd /path/to/your/project
+python -m voice_buddy.cli setup
 
-# Or install globally
-python -m voice_buddy.cli setup --global
-
-# Test it (run from the Voice Buddy repo)
+# Test it
 python -m voice_buddy.cli test sessionstart
 ```
 
 ## Commands
 
-All commands must be run from the Voice Buddy repo directory (or with PYTHONPATH set).
-
 | Command | Description |
 |---------|-------------|
 | `python -m voice_buddy.cli setup` | Install hooks to current project |
-| `python -m voice_buddy.cli setup --project /path` | Install hooks to a specific project |
 | `python -m voice_buddy.cli setup --global` | Install hooks globally |
 | `python -m voice_buddy.cli uninstall` | Remove hooks from current project |
 | `python -m voice_buddy.cli test <event>` | Test a hook event |
