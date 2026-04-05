@@ -5,7 +5,8 @@ from voice_buddy.injector import process_stop_event, extract_last_assistant_mess
 
 # --- Transcript parsing ---
 
-def test_extract_last_assistant_message_from_jsonl(tmp_path):
+def test_extract_last_assistant_message_from_simple_jsonl(tmp_path):
+    """Simple JSONL format: {"role": "assistant", "content": "string"}"""
     transcript = tmp_path / "transcript.jsonl"
     transcript.write_text(
         '{"role": "user", "content": "fix the bug"}\n'
@@ -14,6 +15,18 @@ def test_extract_last_assistant_message_from_jsonl(tmp_path):
     )
     result = extract_last_assistant_message(str(transcript))
     assert result == "I have fixed the bug in utils.py and updated the tests."
+
+
+def test_extract_last_assistant_message_claude_code_format(tmp_path):
+    """Claude Code format: {"type": "assistant", "message": {"role": "assistant", "content": [blocks]}}"""
+    transcript = tmp_path / "transcript.jsonl"
+    transcript.write_text(
+        '{"type": "user", "message": {"role": "user", "content": "fix the bug"}}\n'
+        '{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "I have fixed the bug and updated tests."}]}}\n',
+        encoding="utf-8",
+    )
+    result = extract_last_assistant_message(str(transcript))
+    assert result == "I have fixed the bug and updated tests."
 
 
 def test_extract_last_assistant_message_multiple_messages(tmp_path):

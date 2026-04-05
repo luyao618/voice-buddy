@@ -27,7 +27,9 @@ _FILE_MOD = re.compile(
 def extract_last_assistant_message(transcript_path: str) -> Optional[str]:
     """Read transcript file and extract the last assistant message.
 
-    The transcript is expected to be JSONL format with {role, content} objects.
+    The transcript is Claude Code's JSONL format where each line is:
+      {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "..."}]}}
+    Content can be a list of blocks (with "text" type) or a plain string.
     """
     try:
         last_assistant_msg = None
@@ -38,15 +40,44 @@ def extract_last_assistant_message(transcript_path: str) -> Optional[str]:
                     continue
                 try:
                     entry = json.loads(line)
-                    if entry.get("role") == "assistant":
+
+                    # Claude Code transcript format: type="assistant", message={role, content}
+                    if entry.get("type") == "assistant":
+                        msg = entry.get("message", {})
+                        if isinstance(msg, dict):
+                            content = msg.get("content", "")
+                            text = _extract_text(content)
+                            if text:
+                                last_assistant_msg = text
+
+                    # Also support simple JSONL format: {"role": "assistant", "content": "..."}
+                    elif entry.get("role") == "assistant":
                         content = entry.get("content", "")
-                        if isinstance(content, str) and content.strip():
-                            last_assistant_msg = content.strip()
+                        text = _extract_text(content)
+                        if text:
+                            last_assistant_msg = text
+
                 except json.JSONDecodeError:
                     continue
         return last_assistant_msg
     except (FileNotFoundError, OSError):
         return None
+
+
+def _extract_text(content) -> Optional[str]:
+    """Extract text from content which may be a string or a list of blocks."""
+    if isinstance(content, str) and content.strip():
+        return content.strip()
+    elif isinstance(content, list):
+        # Content blocks: [{"type": "text", "text": "..."}, ...]
+        texts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                t = block.get("text", "")
+                if t.strip():
+                    texts.append(t.strip())
+        return "\n".join(texts) if texts else None
+    return None
 
 
 def _should_trigger(message: str) -> bool:
@@ -66,27 +97,26 @@ def _should_trigger(message: str) -> bool:
 
 
 def process_stop_event(data: dict) -> None:
-    """Handle Stop event: check transcript, block + inject additionalContext if task completed.
+    """Handle Stop event: check transcript, block + inject additionalContext if task completed."""
+    from voice_buddy.main import _debug
 
-    When a substantive task is detected:
-    - Outputs decision "block" to prevent Claude from stopping
-    - Injects additionalContext prompting Claude to call the voice-buddy subagent
-    - Claude continues, calls subagent, subagent generates a voice response
-    - On the next Stop attempt, the transcript has changed (subagent call result),
-      so _should_trigger won't match again — Claude stops normally.
-
-    When no task is detected, outputs nothing — Claude stops normally.
-    """
     transcript_path = data.get("transcript_path", "")
     if not transcript_path:
+        _debug("  injector: no transcript_path")
         return
 
     message = extract_last_assistant_message(transcript_path)
     if message is None:
+        _debug(f"  injector: no assistant message found in {transcript_path}")
         return
 
+    _debug(f"  injector: last assistant msg (first 100 chars): {message[:100]}")
+
     if not _should_trigger(message):
+        _debug(f"  injector: _should_trigger returned False")
         return
+
+    _debug(f"  injector: TRIGGERED! Outputting block + additionalContext")
 
     # Truncate message for context injection (keep it concise)
     summary = message[:500] if len(message) > 500 else message
@@ -104,4 +134,6 @@ def process_stop_event(data: dict) -> None:
         },
     }
 
-    print(json.dumps(output, ensure_ascii=False))
+    json_out = json.dumps(output, ensure_ascii=False)
+    _debug(f"  injector: stdout JSON: {json_out[:200]}")
+    print(json_out)
