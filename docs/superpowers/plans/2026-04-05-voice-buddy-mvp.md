@@ -60,6 +60,12 @@ Claude-Code-Voice-Buddy/
 
 ```
 edge-tts
+```
+
+- [ ] **Step 1b: Create requirements-dev.txt**
+
+```
+edge-tts
 pytest
 ```
 
@@ -200,7 +206,7 @@ Expected: 4 tests PASS
 - [ ] **Step 10: Commit**
 
 ```bash
-git add requirements.txt buddy-config.json templates.json voice_buddy/__init__.py voice_buddy/config.py tests/__init__.py tests/test_config.py
+git add requirements.txt requirements-dev.txt buddy-config.json templates.json voice_buddy/__init__.py voice_buddy/config.py tests/__init__.py tests/test_config.py
 git commit -m "feat: add project skeleton with config and templates"
 ```
 
@@ -822,7 +828,7 @@ def play_audio(file_path: str | Path) -> bool:
         return False
 ```
 
-Note: player.py is not unit-tested because it depends on system audio hardware. It will be integration-tested via `voice-buddy test` CLI command.
+Note: player.py is not unit-tested because it depends on system audio hardware. It will be integration-tested via `voice-buddy test` CLI command. Windows support is limited: winsound only plays WAV, but edge-tts outputs MP3. Windows users will need ffplay or mpg123 installed. This is acceptable for MVP (primary target is macOS).
 
 - [ ] **Step 2: Commit**
 
@@ -850,6 +856,7 @@ Create `voice_buddy/tts.py`:
 """Text-to-speech synthesis using edge-tts."""
 
 import asyncio
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -877,18 +884,40 @@ def synthesize_to_file(text: str) -> str | None:
     """Synthesize text to a temporary audio file.
 
     Returns the path to the generated .mp3 file, or None on failure.
+    The caller is responsible for cleanup, but since playback is async
+    (Popen with start_new_session), we schedule cleanup after a delay.
     """
     try:
-        # Create a temp file that won't be auto-deleted
+        # Create a temp file that won't be auto-deleted (async playback needs it)
         tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
         tmp_path = tmp.name
         tmp.close()
 
         asyncio.run(_synthesize(text, tmp_path))
+
+        # Schedule cleanup after 30 seconds (enough for playback to finish)
+        _schedule_cleanup(tmp_path, delay=30)
+
         return tmp_path
     except Exception as e:
         print(f"TTS synthesis failed: {e}", file=sys.stderr)
         return None
+
+
+def _schedule_cleanup(file_path: str, delay: int = 30) -> None:
+    """Delete temp file after a delay, in a background thread."""
+    import threading
+
+    def _cleanup():
+        import time
+        time.sleep(delay)
+        try:
+            os.remove(file_path)
+        except OSError:
+            pass
+
+    t = threading.Thread(target=_cleanup, daemon=True)
+    t.start()
 ```
 
 Note: tts.py is not unit-tested because it requires network access to Microsoft's edge-tts service. It will be integration-tested via `voice-buddy test` CLI command.
@@ -1115,7 +1144,7 @@ Create `tests/test_injector.py`:
 ```python
 import json
 import os
-from voice_buddy.injector import process_stop_event, _extract_last_assistant_message, _should_trigger
+from voice_buddy.injector import process_stop_event, extract_last_assistant_message, _should_trigger
 
 
 # --- Transcript parsing ---
@@ -1127,7 +1156,7 @@ def test_extract_last_assistant_message_from_jsonl(tmp_path):
         '{"role": "assistant", "content": "I have fixed the bug in utils.py and updated the tests."}\n',
         encoding="utf-8",
     )
-    result = _extract_last_assistant_message(str(transcript))
+    result = extract_last_assistant_message(str(transcript))
     assert result == "I have fixed the bug in utils.py and updated the tests."
 
 
@@ -1139,7 +1168,7 @@ def test_extract_last_assistant_message_multiple_messages(tmp_path):
         '{"role": "assistant", "content": "Done! I have implemented the feature and created 3 new files."}\n',
         encoding="utf-8",
     )
-    result = _extract_last_assistant_message(str(transcript))
+    result = extract_last_assistant_message(str(transcript))
     assert result == "Done! I have implemented the feature and created 3 new files."
 
 
@@ -1149,12 +1178,12 @@ def test_extract_last_assistant_message_no_assistant(tmp_path):
         '{"role": "user", "content": "hello"}\n',
         encoding="utf-8",
     )
-    result = _extract_last_assistant_message(str(transcript))
+    result = extract_last_assistant_message(str(transcript))
     assert result is None
 
 
 def test_extract_last_assistant_message_missing_file():
-    result = _extract_last_assistant_message("/nonexistent/path/transcript.jsonl")
+    result = extract_last_assistant_message("/nonexistent/path/transcript.jsonl")
     assert result is None
 
 
@@ -1268,7 +1297,7 @@ _FILE_MOD = re.compile(
 )
 
 
-def _extract_last_assistant_message(transcript_path: str) -> Optional[str]:
+def extract_last_assistant_message(transcript_path: str) -> Optional[str]:
     """Read transcript file and extract the last assistant message.
 
     The transcript is expected to be JSONL format with {role, content} objects.
@@ -1315,7 +1344,7 @@ def process_stop_event(data: dict) -> None:
     if not transcript_path:
         return
 
-    message = _extract_last_assistant_message(transcript_path)
+    message = extract_last_assistant_message(transcript_path)
     if message is None:
         return
 
@@ -1372,7 +1401,7 @@ This script is invoked by the subagent's hook, NOT by the main hook entry point.
 import json
 import sys
 
-from voice_buddy.injector import _extract_last_assistant_message
+from voice_buddy.injector import extract_last_assistant_message
 from voice_buddy.tts import synthesize_to_file
 from voice_buddy.player import play_audio
 
@@ -1391,7 +1420,7 @@ def main() -> None:
         if not transcript_path:
             sys.exit(0)
 
-        message = _extract_last_assistant_message(transcript_path)
+        message = extract_last_assistant_message(transcript_path)
         if not message:
             sys.exit(0)
 
@@ -1411,7 +1440,7 @@ if __name__ == "__main__":
     main()
 ```
 
-Note: This script is not unit-tested because it's a thin integration layer that combines already-tested modules (injector._extract_last_assistant_message, tts.synthesize_to_file, player.play_audio). It will be verified through end-to-end testing with Claude Code.
+Note: This script is not unit-tested because it's a thin integration layer that combines already-tested modules (injector.extract_last_assistant_message, tts.synthesize_to_file, player.play_audio). It will be verified through end-to-end testing with Claude Code.
 
 - [ ] **Step 2: Commit**
 
@@ -1441,7 +1470,7 @@ maxTurns: 2
 hooks:
   Stop:
     - type: command
-      command: "python3 <repo_path>/voice_buddy/subagent_tts.py"
+      command: "PYTHONPATH=<repo_path> python3 -m voice_buddy.subagent_tts"
       timeout: 5000
       async: true
 ---
@@ -1477,6 +1506,8 @@ git commit -m "feat: add voice-buddy subagent definition"
 ---
 
 ## Task 10: CLI - Setup and Uninstall
+
+**Depends on:** Task 9 (agent/voice-buddy.md must exist for setup tests)
 
 **Files:**
 - Create: `voice_buddy/cli.py`
@@ -1684,7 +1715,7 @@ def _make_hook_entry(repo_path: str, event: str) -> dict:
     """Create a hook entry dict for the given event."""
     entry = {
         "type": "command",
-        "command": f"python3 {repo_path}/voice_buddy/__main__.py",
+        "command": f"PYTHONPATH={repo_path} python3 -m voice_buddy",
         "timeout": 5000,
         "async": True,
         "_voice_buddy": True,
@@ -1809,15 +1840,25 @@ def do_test(event: str) -> None:
             "error": "Command failed with exit code 1",
             "error_type": "command_error",
         },
-        "stop": {
-            "hook_event_name": "Stop",
-            "transcript_path": "/tmp/voice-buddy-test-transcript",
-            "session_id": "test",
-            "cwd": os.getcwd(),
-        },
     }
 
     event_lower = event.lower()
+
+    # Special handling for stop: create a real mock transcript
+    if event_lower == "stop":
+        import tempfile
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".jsonl", delete=False, encoding="utf-8",
+        )
+        tmp.write('{"role": "user", "content": "fix the bug in parser.py"}\n')
+        tmp.write('{"role": "assistant", "content": "I have fixed the bug in parser.py and updated the tests. All 12 tests pass now."}\n')
+        tmp.close()
+        mock_data["stop"] = {
+            "hook_event_name": "Stop",
+            "transcript_path": tmp.name,
+            "session_id": "test",
+            "cwd": os.getcwd(),
+        }
     if event_lower not in mock_data:
         print(f"Unknown event: {event}", file=sys.stderr)
         print(f"Available: {', '.join(mock_data.keys())}", file=sys.stderr)
