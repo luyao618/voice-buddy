@@ -18,6 +18,11 @@ def test_marketplace_json_exists():
     assert path.exists()
     data = json.loads(path.read_text())
     assert data["name"] == "voice-buddy-marketplace"
+    # source must be a github object, not a plain string
+    plugin = data["plugins"][0]
+    assert isinstance(plugin["source"], dict)
+    assert plugin["source"]["source"] == "github"
+    assert "repo" in plugin["source"]
 
 
 def test_hooks_json_exists_and_valid():
