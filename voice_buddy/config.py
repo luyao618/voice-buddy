@@ -72,23 +72,3 @@ def get_repo_root() -> Path:
     """Return the repo/plugin root directory."""
     return _REPO_ROOT
 
-
-# ---------------------------------------------------------------------------
-# Legacy functions — kept for backward compatibility until Task 10 cleanup
-# ---------------------------------------------------------------------------
-
-_ROOT_DIR = _REPO_ROOT
-
-
-def load_config() -> dict:
-    """Load buddy-config.json from the project root."""
-    config_path = _ROOT_DIR / "buddy-config.json"
-    with open(config_path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def load_templates() -> dict:
-    """Load templates.json from the project root."""
-    templates_path = _ROOT_DIR / "templates.json"
-    with open(templates_path, "r", encoding="utf-8") as f:
-        return json.load(f)
