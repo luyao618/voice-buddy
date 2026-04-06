@@ -141,7 +141,7 @@ def process_stop_event(data: dict, user_config: dict = None) -> None:
         f"persona_override={'null' if persona_override is None else persona_override}",
         f"Task summary: {message[:200]}",
         f"Generate a {style_id} style one-sentence summary addressing the user as {nickname},",
-        f"then call: python3 -m voice_buddy.subagent_tts '<your sentence>'",
+        f'then call: PYTHONPATH="${{CLAUDE_PLUGIN_ROOT}}" python3 -m voice_buddy.subagent_tts \'<your sentence>\'',
     ]
     additional_context = ". ".join(context_parts)
 
