@@ -1,0 +1,13 @@
+{
+  "id": "cute-girl",
+  "name": "CC",
+  "language": "zh-CN",
+  "description": "Cute, sweet personality",
+  "tts": {
+    "voice": "zh-CN-XiaoyiNeural",
+    "rate": "+10%",
+    "pitch": "+5Hz"
+  },
+  "default_nickname": "Master",
+  "agent": "voice-buddy-cute-girl"
+}
