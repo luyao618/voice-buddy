@@ -147,8 +147,11 @@ def process_stop_event(data: dict, user_config: dict = None) -> None:
 
     output = {
         "decision": "block",
-        "additionalContext": additional_context,
+        "reason": "Voice Buddy is generating a voice response",
+        "hookSpecificOutput": {
+            "hookEventName": "Stop",
+            "additionalContext": additional_context,
+        },
     }
 
-    print(json.dumps(output), file=sys.stderr)
-    sys.exit(2)
+    print(json.dumps(output, ensure_ascii=False))

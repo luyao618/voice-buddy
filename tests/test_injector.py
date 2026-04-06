@@ -115,14 +115,12 @@ def test_process_stop_event_triggers(tmp_path, capfd):
     )
     data = {"hook_event_name": "Stop", "transcript_path": str(transcript)}
 
-    with pytest.raises(SystemExit) as exc_info:
-        process_stop_event(data, _make_config())
-    assert exc_info.value.code == 2
+    process_stop_event(data, _make_config())
 
     captured = capfd.readouterr()
-    output = json.loads(captured.err)
+    output = json.loads(captured.out)
     assert output["decision"] == "block"
-    assert "additionalContext" in output
+    assert "additionalContext" in output["hookSpecificOutput"]
 
 
 def test_process_stop_event_prefers_last_assistant_message(capfd):
@@ -133,14 +131,13 @@ def test_process_stop_event_prefers_last_assistant_message(capfd):
         "last_assistant_message": "I have fixed the bug and updated 3 test files.",
     }
 
-    with pytest.raises(SystemExit) as exc_info:
-        process_stop_event(data, _make_config())
-    assert exc_info.value.code == 2
+    process_stop_event(data, _make_config())
 
     captured = capfd.readouterr()
-    output = json.loads(captured.err)
+    output = json.loads(captured.out)
     assert output["decision"] == "block"
-    assert "fixed the bug" in output["additionalContext"]
+    ctx = output["hookSpecificOutput"]["additionalContext"]
+    assert "fixed the bug" in ctx
 
 
 def test_process_stop_event_stays_silent(tmp_path, capfd):
@@ -179,15 +176,15 @@ def test_process_stop_event_skips_when_stop_hook_active(tmp_path, capfd):
         "stop_hook_active": True,
     }
 
-    # Should NOT raise SystemExit — just return silently
+    # Should just return silently
     process_stop_event(data, _make_config())
 
     captured = capfd.readouterr()
-    assert captured.err == ""
+    assert captured.out == ""
 
 
 def test_process_stop_event_outputs_json_with_style(tmp_path, capfd):
-    """Stderr output must be valid JSON containing decision and additionalContext."""
+    """Stdout output must be valid JSON with hookSpecificOutput containing additionalContext."""
     transcript = tmp_path / "transcript.jsonl"
     transcript.write_text(
         '{"role": "assistant", "content": "I have fixed the bug and updated tests."}\n',
@@ -196,16 +193,14 @@ def test_process_stop_event_outputs_json_with_style(tmp_path, capfd):
     data = {"transcript_path": str(transcript)}
     user_config = _make_config(style="kawaii", nickname="Senpai")
 
-    with pytest.raises(SystemExit) as exc_info:
-        process_stop_event(data, user_config)
-    assert exc_info.value.code == 2
+    process_stop_event(data, user_config)
 
     captured = capfd.readouterr()
-    output = json.loads(captured.err)
+    output = json.loads(captured.out)
     assert output["decision"] == "block"
-    assert "additionalContext" in output
-    assert "kawaii" in output["additionalContext"]
-    assert "Senpai" in output["additionalContext"]
+    ctx = output["hookSpecificOutput"]["additionalContext"]
+    assert "kawaii" in ctx
+    assert "Senpai" in ctx
 
 
 def test_process_stop_event_includes_nickname_in_context(tmp_path, capfd):
@@ -218,15 +213,14 @@ def test_process_stop_event_includes_nickname_in_context(tmp_path, capfd):
     data = {"transcript_path": str(transcript)}
     user_config = _make_config(style="secretary", nickname="Boss")
 
-    with pytest.raises(SystemExit):
-        process_stop_event(data, user_config)
+    process_stop_event(data, user_config)
 
     captured = capfd.readouterr()
-    output = json.loads(captured.err)
-    assert output["decision"] == "block"
-    assert "Boss" in output["additionalContext"]
-    assert "secretary" in output["additionalContext"]
-    assert "subagent_tts" in output["additionalContext"]
+    output = json.loads(captured.out)
+    ctx = output["hookSpecificOutput"]["additionalContext"]
+    assert "Boss" in ctx
+    assert "secretary" in ctx
+    assert "subagent_tts" in ctx
 
 
 def test_process_stop_event_persona_override_null(tmp_path, capfd):
@@ -239,12 +233,12 @@ def test_process_stop_event_persona_override_null(tmp_path, capfd):
     data = {"transcript_path": str(transcript)}
     user_config = _make_config(persona_override=None)
 
-    with pytest.raises(SystemExit):
-        process_stop_event(data, user_config)
+    process_stop_event(data, user_config)
 
     captured = capfd.readouterr()
-    output = json.loads(captured.err)
-    assert "null" in output["additionalContext"]
+    output = json.loads(captured.out)
+    ctx = output["hookSpecificOutput"]["additionalContext"]
+    assert "null" in ctx
 
 
 def test_process_stop_event_persona_override_set(tmp_path, capfd):
@@ -257,9 +251,9 @@ def test_process_stop_event_persona_override_set(tmp_path, capfd):
     data = {"transcript_path": str(transcript)}
     user_config = _make_config(persona_override="Be extra cheerful today")
 
-    with pytest.raises(SystemExit):
-        process_stop_event(data, user_config)
+    process_stop_event(data, user_config)
 
     captured = capfd.readouterr()
-    output = json.loads(captured.err)
-    assert "Be extra cheerful today" in output["additionalContext"]
+    output = json.loads(captured.out)
+    ctx = output["hookSpecificOutput"]["additionalContext"]
+    assert "Be extra cheerful today" in ctx
