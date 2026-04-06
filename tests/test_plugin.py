@@ -91,10 +91,13 @@ def test_plugin_json_has_user_config():
     path = REPO_ROOT / ".claude-plugin" / "plugin.json"
     data = json.loads(path.read_text())
     assert "userConfig" in data
-    assert "style" in data["userConfig"]
-    assert "nickname" in data["userConfig"]
-    assert data["userConfig"]["style"]["sensitive"] is False
-    assert data["userConfig"]["nickname"]["sensitive"] is False
+    style = data["userConfig"]["style"]
+    nickname = data["userConfig"]["nickname"]
+    # Required fields per Claude Code plugin schema
+    assert style["type"] == "string"
+    assert "title" in style
+    assert nickname["type"] == "string"
+    assert "title" in nickname
 
 
 def test_slash_command_exists():

@@ -10,11 +10,15 @@
   "keywords": ["voice", "tts", "personality", "companion"],
   "userConfig": {
     "style": {
-      "description": "Voice style: cute-girl (Chinese, sweet), elegant-lady (Chinese, graceful), warm-boy (Chinese, warm), secretary (English, professional), kawaii (Japanese, cute). Default: cute-girl",
+      "title": "Voice Style",
+      "description": "cute-girl (Chinese, sweet), elegant-lady (Chinese, graceful), warm-boy (Chinese, warm), secretary (English, professional), kawaii (Japanese, cute)",
+      "type": "string",
       "sensitive": false
     },
     "nickname": {
-      "description": "How CC addresses you (e.g. Master, Boss, Senpai). Default: Master",
+      "title": "Nickname",
+      "description": "How CC addresses you (e.g. Master, Boss, Senpai)",
+      "type": "string",
       "sensitive": false
     }
   }
