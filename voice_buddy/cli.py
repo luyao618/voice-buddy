@@ -194,6 +194,78 @@ def do_test(event: str) -> None:
     print("Done!")
 
 
+def do_config(
+    style: str | None = None,
+    nickname: str | None = None,
+    disable: str | None = None,
+    enable: str | None = None,
+    edit_persona: bool = False,
+) -> None:
+    """Update user configuration."""
+    from voice_buddy.config import load_user_config, save_user_config
+
+    config = load_user_config()
+
+    if style is not None:
+        from voice_buddy.styles import load_style
+        if load_style(style) is None:
+            print(f"Unknown style: {style}", file=sys.stderr)
+            return
+        config["style"] = style
+
+    if nickname is not None:
+        config["nickname"] = nickname
+
+    if disable is not None:
+        if disable in config["events"]:
+            config["events"][disable] = False
+        else:
+            print(f"Unknown event: {disable}", file=sys.stderr)
+            return
+
+    if enable is not None:
+        if enable in config["events"]:
+            config["events"][enable] = True
+        else:
+            print(f"Unknown event: {enable}", file=sys.stderr)
+            return
+
+    if edit_persona:
+        import subprocess
+        import tempfile
+        editor = os.environ.get("EDITOR", "vi")
+        current = config.get("persona_override") or ""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(current)
+            f.flush()
+            subprocess.call([editor, f.name])
+        with open(f.name, "r") as rf:
+            new_persona = rf.read().strip()
+        config["persona_override"] = new_persona if new_persona else None
+        os.unlink(f.name)
+
+    save_user_config(config)
+    print(f"Config updated: style={config['style']}, nickname={config['nickname']}")
+
+
+def do_on() -> None:
+    """Enable voice buddy globally."""
+    from voice_buddy.config import load_user_config, save_user_config
+    config = load_user_config()
+    config["enabled"] = True
+    save_user_config(config)
+    print("Voice Buddy: ON")
+
+
+def do_off() -> None:
+    """Disable voice buddy globally."""
+    from voice_buddy.config import load_user_config, save_user_config
+    config = load_user_config()
+    config["enabled"] = False
+    save_user_config(config)
+    print("Voice Buddy: OFF")
+
+
 def main() -> None:
     """CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -227,6 +299,19 @@ def main() -> None:
     # test
     test_parser = subparsers.add_parser("test", help="Test a hook event")
     test_parser.add_argument("event", help="Event name to test")
+    test_parser.add_argument("--style", help="Override style for this test")
+
+    # config
+    config_parser = subparsers.add_parser("config", help="Configure voice buddy")
+    config_parser.add_argument("--style", help="Set style")
+    config_parser.add_argument("--nickname", help="Set nickname")
+    config_parser.add_argument("--disable", help="Disable an event")
+    config_parser.add_argument("--enable", help="Enable an event")
+    config_parser.add_argument("--edit-persona", action="store_true", help="Edit agent persona")
+
+    # on / off
+    subparsers.add_parser("on", help="Enable voice buddy")
+    subparsers.add_parser("off", help="Disable voice buddy")
 
     args = parser.parse_args()
 
@@ -248,6 +333,14 @@ def main() -> None:
         do_uninstall(project_dir=project_dir)
     elif args.command == "test":
         do_test(args.event)
+    elif args.command == "config":
+        do_config(style=args.style, nickname=args.nickname,
+                  disable=args.disable, enable=args.enable,
+                  edit_persona=args.edit_persona)
+    elif args.command == "on":
+        do_on()
+    elif args.command == "off":
+        do_off()
 
 
 if __name__ == "__main__":

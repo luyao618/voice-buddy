@@ -2,7 +2,8 @@ import json
 import os
 import shutil
 from pathlib import Path
-from voice_buddy.cli import do_setup, do_uninstall
+from unittest.mock import patch
+from voice_buddy.cli import do_setup, do_uninstall, do_config, do_on, do_off
 
 
 def test_setup_creates_settings_json(tmp_path):
@@ -197,3 +198,66 @@ def test_uninstall_removes_agent_file(tmp_path):
     # All voice-buddy agent files should be removed
     remaining = list(agents_dir.glob("voice-buddy-*.md"))
     assert len(remaining) == 0, f"Expected all agent files removed, found: {remaining}"
+
+
+def test_do_config_set_style(tmp_path):
+    config_path = tmp_path / "config.json"
+    with patch("voice_buddy.config.get_config_dir", return_value=tmp_path):
+        do_config(style="kawaii")
+    saved = json.loads(config_path.read_text())
+    assert saved["style"] == "kawaii"
+
+
+def test_do_config_set_nickname(tmp_path):
+    config_path = tmp_path / "config.json"
+    with patch("voice_buddy.config.get_config_dir", return_value=tmp_path):
+        do_config(nickname="Senpai")
+    saved = json.loads(config_path.read_text())
+    assert saved["nickname"] == "Senpai"
+
+
+def test_do_config_set_multiple(tmp_path):
+    config_path = tmp_path / "config.json"
+    with patch("voice_buddy.config.get_config_dir", return_value=tmp_path):
+        do_config(style="secretary", nickname="Boss")
+    saved = json.loads(config_path.read_text())
+    assert saved["style"] == "secretary"
+    assert saved["nickname"] == "Boss"
+
+
+def test_do_config_disable_event(tmp_path):
+    config_path = tmp_path / "config.json"
+    with patch("voice_buddy.config.get_config_dir", return_value=tmp_path):
+        do_config(disable="notification")
+    saved = json.loads(config_path.read_text())
+    assert saved["events"]["notification"] is False
+
+
+def test_do_config_enable_event(tmp_path):
+    config_path = tmp_path / "config.json"
+    with patch("voice_buddy.config.get_config_dir", return_value=tmp_path):
+        do_config(disable="notification")
+        do_config(enable="notification")
+    saved = json.loads(config_path.read_text())
+    assert saved["events"]["notification"] is True
+
+
+def test_do_on(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"style": "cute-girl", "nickname": "Master",
+                                        "enabled": False,
+                                        "events": {"sessionstart": True, "sessionend": True,
+                                                    "notification": True, "stop": True},
+                                        "persona_override": None}))
+    with patch("voice_buddy.config.get_config_dir", return_value=tmp_path):
+        do_on()
+    saved = json.loads(config_path.read_text())
+    assert saved["enabled"] is True
+
+
+def test_do_off(tmp_path):
+    config_path = tmp_path / "config.json"
+    with patch("voice_buddy.config.get_config_dir", return_value=tmp_path):
+        do_off()
+    saved = json.loads(config_path.read_text())
+    assert saved["enabled"] is False
