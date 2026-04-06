@@ -1,6 +1,7 @@
 """Stop event handler: read transcript, check trigger criteria, block + inject additionalContext."""
 
 import json
+import os
 import re
 import sys
 from typing import Optional
@@ -133,8 +134,13 @@ def process_stop_event(data: dict, user_config: dict = None) -> None:
     persona_override = user_config.get("persona_override")
 
     from voice_buddy.styles import load_style
+    from voice_buddy.config import get_repo_root
     style = load_style(style_id)
     agent_name = style["agent"] if style else "voice-buddy-cute-girl"
+
+    # Resolve actual plugin root path at runtime (CLAUDE_PLUGIN_ROOT may not
+    # be available in agent's Bash env, so we bake in the absolute path).
+    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT", str(get_repo_root()))
 
     summary = message[:150] if len(message) > 150 else message
 
@@ -151,7 +157,7 @@ def process_stop_event(data: dict, user_config: dict = None) -> None:
         f"Task summary: {summary}\n\n"
         f"Generate a {style_id} style one-sentence summary addressing the user as {nickname}, "
         f"then call Bash to speak it:\n"
-        f'PYTHONPATH="${{CLAUDE_PLUGIN_ROOT}}" python3 -m voice_buddy.subagent_tts \'<your sentence>\'',
+        f"PYTHONPATH={plugin_root} python3 -m voice_buddy.subagent_tts '<your sentence>'",
         file=sys.stderr,
     )
     sys.exit(2)
