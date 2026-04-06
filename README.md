@@ -57,6 +57,12 @@ Voice Buddy 接入 [Claude Code 的 Hook 系统](https://docs.anthropic.com/en/d
 
 安装完成后 Hook 自动注册，无需手动配置。
 
+> **遇到 SSH 错误？** 如果安装时提示 `Permission denied (publickey)`，在终端运行：
+> ```bash
+> git config --global url."https://github.com/".insteadOf "git@github.com:"
+> ```
+> 然后重新安装即可。
+
 ### 配置
 
 安装后，在 Claude Code 对话中输入 `/voice-buddy` 即可进入配置面板。
@@ -159,6 +165,12 @@ Run inside Claude Code:
 During installation you'll be prompted to choose a **style** and **nickname**. Press Enter to use defaults (cute-girl / Master).
 
 Hooks are auto-registered on install — no manual setup needed.
+
+> **SSH error?** If you see `Permission denied (publickey)` during install, run in terminal:
+> ```bash
+> git config --global url."https://github.com/".insteadOf "git@github.com:"
+> ```
+> Then retry the install.
 
 ### Configuration
 
