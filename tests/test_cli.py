@@ -113,13 +113,18 @@ def test_setup_copies_agent_file(tmp_path):
 
     do_setup(project_dir=str(project_dir), repo_path=str(repo_path))
 
-    agent_path = project_dir / ".claude" / "agents" / "voice-buddy.md"
-    assert agent_path.exists()
-
-    content = agent_path.read_text()
-    assert "<repo_path>" not in content  # placeholder should be replaced
-    # Path may be shlex-quoted, so check the raw path string is present
-    assert str(repo_path) in content or str(repo_path).replace("'", "") in content
+    agents_dir = project_dir / ".claude" / "agents"
+    # All 5 persona agent files should be copied
+    expected = [
+        "voice-buddy-cute-girl.md",
+        "voice-buddy-elegant-lady.md",
+        "voice-buddy-warm-boy.md",
+        "voice-buddy-secretary.md",
+        "voice-buddy-kawaii.md",
+    ]
+    for fname in expected:
+        agent_path = agents_dir / fname
+        assert agent_path.exists(), f"Missing agent file: {fname}"
 
 
 def test_uninstall_removes_hooks(tmp_path):
@@ -182,8 +187,13 @@ def test_uninstall_removes_agent_file(tmp_path):
 
     do_setup(project_dir=str(project_dir), repo_path=str(repo_path))
 
-    agent_path = project_dir / ".claude" / "agents" / "voice-buddy.md"
-    assert agent_path.exists()
+    agents_dir = project_dir / ".claude" / "agents"
+    # Verify at least one agent file was installed before uninstalling
+    installed = list(agents_dir.glob("voice-buddy-*.md"))
+    assert len(installed) > 0, "Expected agent files to be installed"
 
     do_uninstall(project_dir=str(project_dir))
-    assert not agent_path.exists()
+
+    # All voice-buddy agent files should be removed
+    remaining = list(agents_dir.glob("voice-buddy-*.md"))
+    assert len(remaining) == 0, f"Expected all agent files removed, found: {remaining}"

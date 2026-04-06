@@ -82,25 +82,27 @@ def do_setup(project_dir: str = ".", repo_path: str | None = None) -> None:
     with open(settings_path, "w", encoding="utf-8") as f:
         json.dump(settings, f, indent=2, ensure_ascii=False)
 
-    # Copy agent file
+    # Copy all agent persona files from agents/ directory
     agents_dir = os.path.join(claude_dir, "agents")
     os.makedirs(agents_dir, exist_ok=True)
 
-    agent_src = os.path.join(repo_path, "agent", "voice-buddy.md")
-    agent_dst = os.path.join(agents_dir, "voice-buddy.md")
-
-    if os.path.exists(agent_src):
-        import shlex
-        quoted_path = shlex.quote(repo_path)
-        with open(agent_src, "r", encoding="utf-8") as f:
-            content = f.read()
-        content = content.replace("<repo_path>", quoted_path)
-        with open(agent_dst, "w", encoding="utf-8") as f:
-            f.write(content)
+    agents_src_dir = os.path.join(repo_path, "agents")
+    copied = []
+    if os.path.isdir(agents_src_dir):
+        for fname in os.listdir(agents_src_dir):
+            if fname.startswith("voice-buddy-") and fname.endswith(".md"):
+                src = os.path.join(agents_src_dir, fname)
+                dst = os.path.join(agents_dir, fname)
+                with open(src, "r", encoding="utf-8") as f:
+                    content = f.read()
+                with open(dst, "w", encoding="utf-8") as f:
+                    f.write(content)
+                copied.append(fname)
 
     print(f"Voice Buddy installed to {project_dir}")
     print(f"  Hooks: {settings_path}")
-    print(f"  Agent: {agent_dst}")
+    for fname in sorted(copied):
+        print(f"  Agent: {os.path.join(agents_dir, fname)}")
 
 
 def do_uninstall(project_dir: str = ".") -> None:
@@ -123,10 +125,12 @@ def do_uninstall(project_dir: str = ".") -> None:
     with open(settings_path, "w", encoding="utf-8") as f:
         json.dump(settings, f, indent=2, ensure_ascii=False)
 
-    # Remove agent file
-    agent_path = os.path.join(project_dir, ".claude", "agents", "voice-buddy.md")
-    if os.path.exists(agent_path):
-        os.remove(agent_path)
+    # Remove all voice-buddy agent persona files
+    agents_dir = os.path.join(project_dir, ".claude", "agents")
+    if os.path.isdir(agents_dir):
+        for fname in os.listdir(agents_dir):
+            if fname.startswith("voice-buddy-") and fname.endswith(".md"):
+                os.remove(os.path.join(agents_dir, fname))
 
     print(f"Voice Buddy uninstalled from {project_dir}")
 
