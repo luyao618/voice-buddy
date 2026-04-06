@@ -28,3 +28,4 @@ Thumbs.db
 # Temp audio files
 *.mp3
 !tests/**/*.mp3
+!assets/audio/**/*.mp3
