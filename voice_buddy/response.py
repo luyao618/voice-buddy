@@ -1,32 +1,58 @@
-"""Select template responses and perform variable substitution."""
+"""Select a response template for a given context and style."""
 
+import json
 import random
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
-from voice_buddy.config import load_templates
-from voice_buddy.context import ContextResult
+_TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
+
+# Events that have pre-packaged audio (no nickname substitution)
+_PREPACKAGED_EVENTS = {"sessionstart", "sessionend"}
 
 
-def select_response(ctx: ContextResult) -> Optional[str]:
-    """Select a random template response for the given context.
+@dataclass
+class ResponseResult:
+    text: str                       # The final text (after substitution)
+    audio_id: Optional[str]         # e.g. "sessionstart_03" for pre-packaged, None for real-time TTS
 
-    Returns None if no matching template is found.
+
+def _load_style_templates(style: str) -> Optional[dict]:
+    """Load templates for a given style."""
+    path = _TEMPLATES_DIR / f"{style}.json"
+    if not path.exists():
+        return None
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def select_response(
+    ctx,
+    style: str = "cute-girl",
+    nickname: str = "Master",
+) -> Optional[ResponseResult]:
+    """Select a response for the given context and style.
+
+    Returns ResponseResult with text and optional audio_id, or None if silent.
     """
-    templates = load_templates()
-
-    event_templates = templates.get(ctx.event)
-    if event_templates is None:
+    templates = _load_style_templates(style)
+    if templates is None:
         return None
 
-    candidates = event_templates.get(ctx.sub_event)
-    if candidates is None or len(candidates) == 0:
+    candidates = templates.get(ctx.event)
+    if not candidates:
         return None
 
-    text = random.choice(candidates)
+    index = random.randrange(len(candidates))
+    text = candidates[index]
 
-    # Variable substitution: replace {{key}} with values from ctx.variables
-    if ctx.variables:
-        for key, value in ctx.variables.items():
-            text = text.replace("{{" + key + "}}", str(value))
+    # Substitute nickname for notification events
+    text = text.replace("{{nickname}}", nickname)
 
-    return text
+    # Pre-packaged events get an audio_id for file lookup
+    audio_id = None
+    if ctx.event in _PREPACKAGED_EVENTS:
+        audio_id = f"{ctx.event}_{index + 1:02d}"
+
+    return ResponseResult(text=text, audio_id=audio_id)
