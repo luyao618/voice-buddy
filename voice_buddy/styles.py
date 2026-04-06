@@ -16,7 +16,7 @@ def load_style(style_id: str) -> Optional[dict]:
         return json.load(f)
 
 
-def list_styles() -> list:
+def list_styles() -> list[dict]:
     """List all available styles."""
     styles = []
     for path in sorted(STYLES_DIR.glob("*.json")):
