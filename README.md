@@ -57,6 +57,15 @@ Voice Buddy 接入 [Claude Code 的 Hook 系统](https://docs.anthropic.com/en/d
 
 安装完成后 Hook 自动注册，无需手动配置。
 
+#### 推荐：添加权限白名单
+
+在 `.claude/settings.json` 的 `allow` 列表中加入以下规则，可以跳过每次语音播放的权限确认，体验更流畅：
+
+```json
+"Bash(PYTHONPATH=* python3 -m voice_buddy*)",
+"Bash(PYTHONPATH=* python3 -m voice_buddy.*)"
+```
+
 ### 配置
 
 安装后，在 Claude Code 对话中输入 `/voice-buddy` 即可进入配置面板。
@@ -159,6 +168,15 @@ Run inside Claude Code:
 During installation you'll be prompted to choose a **style** and **nickname**. Press Enter to use defaults (cute-girl / Master).
 
 Hooks are auto-registered on install — no manual setup needed.
+
+#### Recommended: Add Permission Allowlist
+
+Add the following rules to the `allow` list in `.claude/settings.json` to skip permission prompts for voice playback:
+
+```json
+"Bash(PYTHONPATH=* python3 -m voice_buddy*)",
+"Bash(PYTHONPATH=* python3 -m voice_buddy.*)"
+```
 
 ### Configuration
 
