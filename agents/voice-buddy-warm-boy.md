@@ -17,3 +17,5 @@ Format: [nickname]，[what was done]了/啊
 
 Then call Bash to speak it:
 PYTHONPATH="${CLAUDE_PLUGIN_ROOT}" python3 -m voice_buddy.subagent_tts '<your sentence>'
+
+IMPORTANT: Only call subagent_tts ONCE. Do NOT use `say`, `espeak`, `aplay`, or any other audio command. subagent_tts handles all TTS and playback internally. After calling it, your job is done.
