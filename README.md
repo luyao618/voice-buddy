@@ -37,7 +37,7 @@ Voice Buddy 接入 [Claude Code 的 Hook 系统](https://docs.anthropic.com/en/d
 | **实时 TTS** | ~1s | 通知提醒 | edge-tts 实时合成（含 nickname 替换） |
 | **AI 总结** | ~3s | 任务完成 | Claude subagent 生成 + TTS |
 
-### 快速开始
+### 安装
 
 #### 环境要求
 
@@ -45,9 +45,7 @@ Voice Buddy 接入 [Claude Code 的 Hook 系统](https://docs.anthropic.com/en/d
 - Python 3.9+
 - 音频播放器（macOS: `afplay` 内置, Linux: `paplay`/`aplay`/`mpg123`）
 
-#### 安装方式
-
-**方式 A：Self-hosted Marketplace（推荐）**
+#### 从 Plugin Marketplace 安装
 
 在 Claude Code 中运行：
 ```
@@ -55,56 +53,42 @@ Voice Buddy 接入 [Claude Code 的 Hook 系统](https://docs.anthropic.com/en/d
 /plugin install voice-buddy
 ```
 
+安装时会提示选择**风格**和**称呼**，也可以直接回车使用默认值（cute-girl / Master）。
+
 安装完成后 Hook 自动注册，无需手动配置。
-
-**方式 B：Official Marketplace**
-
-> 🚧 Coming Soon — 提交审核中，通过后可在 Claude Code Discover 面板一键安装。
-
-**方式 C：开发者手动安装**
-
-```bash
-git clone https://github.com/luyao618/Claude-Code-Voice-Buddy.git
-cd Claude-Code-Voice-Buddy
-pip install -r requirements.txt
-
-# 安装到当前项目
-python3 -m voice_buddy.cli setup
-
-# 全局安装（所有项目生效）
-python3 -m voice_buddy.cli setup --global
-
-# 安装到指定项目
-python3 -m voice_buddy.cli setup --project /path/to/your/project
-```
-
-#### 试一试
-
-```bash
-python3 -m voice_buddy.cli test sessionstart     # 听到问候语
-python3 -m voice_buddy.cli test sessionend        # 听到告别语
-python3 -m voice_buddy.cli test notification      # 听到通知提醒
-```
 
 ### 配置
 
+安装后，在 Claude Code 对话中输入 `/voice-buddy` 即可进入配置面板。
+
+也可以直接告诉 Claude 你想要的设置，例如：
+- "帮我把 Voice Buddy 切到 kawaii 风格"
+- "把称呼改成 Senpai"
+- "关掉 notification 的语音"
+
+**或者使用 CLI 命令**（插件安装后 `voice-buddy` 命令自动可用）：
+
 ```bash
 # 切换风格
-python3 -m voice_buddy.cli config --style kawaii
+voice-buddy config --style kawaii
 
 # 修改称呼
-python3 -m voice_buddy.cli config --nickname Senpai
+voice-buddy config --nickname Senpai
 
 # 同时修改
-python3 -m voice_buddy.cli config --style secretary --nickname Boss
+voice-buddy config --style secretary --nickname Boss
 
 # 禁用/启用特定事件
-python3 -m voice_buddy.cli config --disable notification
-python3 -m voice_buddy.cli config --enable notification
+voice-buddy config --disable notification
+voice-buddy config --enable notification
 
 # 全局开关
-python3 -m voice_buddy.cli on
-python3 -m voice_buddy.cli off
+voice-buddy on
+voice-buddy off
+
+# 试听
+voice-buddy test sessionstart
+voice-buddy test notification
 ```
 
 配置文件位置：
@@ -120,20 +104,6 @@ python3 -m voice_buddy.cli off
 | **SessionEnd** | 关闭会话 | Pre-packaged MP3 |
 | **Notification** | Claude 发送通知 | 实时 TTS（含称呼） |
 | **Stop** | Claude 完成任务 | AI 生成个性化总结 |
-
-### CLI 命令
-
-| 命令 | 说明 |
-|------|------|
-| `setup` | 安装 Hook |
-| `setup --global` | 全局安装 |
-| `uninstall` | 卸载 Hook |
-| `test <event>` | 测试事件（sessionstart/sessionend/notification/stop） |
-| `config --style <id>` | 切换风格 |
-| `config --nickname <name>` | 修改称呼 |
-| `config --disable <event>` | 禁用事件 |
-| `config --enable <event>` | 启用事件 |
-| `on` / `off` | 全局开关 |
 
 ---
 
@@ -170,7 +140,7 @@ Voice Buddy hooks into [Claude Code's hook system](https://docs.anthropic.com/en
 | **Real-time TTS** | ~1s | Notifications | edge-tts synthesis with nickname substitution |
 | **AI Summary** | ~3s | Task completion | Claude subagent generates summary + TTS |
 
-### Quick Start
+### Installation
 
 #### Prerequisites
 
@@ -178,9 +148,7 @@ Voice Buddy hooks into [Claude Code's hook system](https://docs.anthropic.com/en
 - Python 3.9+
 - Audio player (macOS: `afplay` built-in, Linux: `paplay`/`aplay`/`mpg123`)
 
-#### Installation
-
-**Path A: Self-hosted Marketplace (Recommended)**
+#### Install from Plugin Marketplace
 
 Run inside Claude Code:
 ```
@@ -188,56 +156,42 @@ Run inside Claude Code:
 /plugin install voice-buddy
 ```
 
+During installation you'll be prompted to choose a **style** and **nickname**. Press Enter to use defaults (cute-girl / Master).
+
 Hooks are auto-registered on install — no manual setup needed.
-
-**Path B: Official Marketplace**
-
-> 🚧 Coming Soon — pending approval. Once approved, one-click install from the Claude Code Discover panel.
-
-**Path C: Developer Manual Install**
-
-```bash
-git clone https://github.com/luyao618/Claude-Code-Voice-Buddy.git
-cd Claude-Code-Voice-Buddy
-pip install -r requirements.txt
-
-# Install to current project
-python3 -m voice_buddy.cli setup
-
-# Install globally (all projects)
-python3 -m voice_buddy.cli setup --global
-
-# Install to a specific project
-python3 -m voice_buddy.cli setup --project /path/to/your/project
-```
-
-#### Try It Out
-
-```bash
-python3 -m voice_buddy.cli test sessionstart     # Hear a greeting
-python3 -m voice_buddy.cli test sessionend        # Hear a goodbye
-python3 -m voice_buddy.cli test notification      # Hear a notification alert
-```
 
 ### Configuration
 
+After installation, type `/voice-buddy` in Claude Code to open the configuration panel.
+
+You can also tell Claude what you want in natural language:
+- "Switch Voice Buddy to kawaii style"
+- "Change my nickname to Senpai"
+- "Disable notification voice"
+
+**Or use CLI commands** (the `voice-buddy` command is automatically available after plugin install):
+
 ```bash
 # Switch style
-python3 -m voice_buddy.cli config --style kawaii
+voice-buddy config --style kawaii
 
 # Change nickname
-python3 -m voice_buddy.cli config --nickname Senpai
+voice-buddy config --nickname Senpai
 
 # Set both at once
-python3 -m voice_buddy.cli config --style secretary --nickname Boss
+voice-buddy config --style secretary --nickname Boss
 
 # Disable/enable specific events
-python3 -m voice_buddy.cli config --disable notification
-python3 -m voice_buddy.cli config --enable notification
+voice-buddy config --disable notification
+voice-buddy config --enable notification
 
 # Global on/off
-python3 -m voice_buddy.cli on
-python3 -m voice_buddy.cli off
+voice-buddy on
+voice-buddy off
+
+# Test
+voice-buddy test sessionstart
+voice-buddy test notification
 ```
 
 Config file location:
@@ -253,20 +207,6 @@ Config file location:
 | **SessionEnd** | Close session | Pre-packaged MP3 |
 | **Notification** | Claude sends a notification | Real-time TTS (with nickname) |
 | **Stop** | Claude finishes a task | AI-generated summary |
-
-### CLI Reference
-
-| Command | Description |
-|---------|-------------|
-| `setup` | Install hooks |
-| `setup --global` | Install hooks globally |
-| `uninstall` | Remove hooks |
-| `test <event>` | Test an event (sessionstart/sessionend/notification/stop) |
-| `config --style <id>` | Switch style |
-| `config --nickname <name>` | Change nickname |
-| `config --disable <event>` | Disable an event |
-| `config --enable <event>` | Enable an event |
-| `on` / `off` | Global toggle |
 
 ### Architecture
 
@@ -300,7 +240,8 @@ Claude-Code-Voice-Buddy/
 ├── .claude-plugin/          # Plugin manifest
 │   ├── plugin.json
 │   └── marketplace.json
-├── hooks/hooks.json         # Hook declarations
+├── hooks/hooks.json         # Hook declarations (auto-registered)
+├── bin/voice-buddy          # CLI wrapper (auto-added to PATH)
 ├── agents/                  # 5 style-specific agent personas
 │   ├── voice-buddy-cute-girl.md
 │   ├── voice-buddy-elegant-lady.md
@@ -323,13 +264,15 @@ Claude-Code-Voice-Buddy/
 │   ├── subagent_tts.py      # Agent TTS entry point
 │   ├── generate_audio.py    # Dev utility: generate MP3 assets
 │   └── cli.py               # CLI commands
-└── tests/                   # 79 tests
+└── tests/                   # 79+ tests
 ```
 
 ### Development
 
 ```bash
-# Install dev dependencies
+git clone https://github.com/luyao618/Claude-Code-Voice-Buddy.git
+cd Claude-Code-Voice-Buddy
+pip install -r requirements.txt
 pip install -r requirements-dev.txt
 
 # Run tests
@@ -338,8 +281,6 @@ python3 -m pytest tests/ -v
 # Regenerate pre-packaged audio (after editing templates)
 python3 -m voice_buddy.generate_audio
 ```
-
-79 tests covering: config system, style loading, response selection, audio asset lookup, main pipeline, CLI commands, injector, and plugin structure validation.
 
 ## License
 

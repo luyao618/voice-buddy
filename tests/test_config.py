@@ -110,3 +110,42 @@ def test_save_user_config_writes_json(tmp_path):
     saved = json.loads((tmp_path / "config.json").read_text())
     assert saved["style"] == "secretary"
     assert saved["nickname"] == "Boss"
+
+
+def test_load_user_config_uses_plugin_env_vars_on_first_run(tmp_path):
+    """When no config exists, CLAUDE_PLUGIN_OPTION_* env vars set defaults."""
+    env = {
+        "CLAUDE_PLUGIN_OPTION_STYLE": "kawaii",
+        "CLAUDE_PLUGIN_OPTION_NICKNAME": "Senpai",
+    }
+    with patch("voice_buddy.config.get_config_dir", return_value=tmp_path), \
+         patch.dict(os.environ, env, clear=False):
+        config = load_user_config()
+    assert config["style"] == "kawaii"
+    assert config["nickname"] == "Senpai"
+    # Verify it was persisted
+    saved = json.loads((tmp_path / "config.json").read_text())
+    assert saved["style"] == "kawaii"
+    assert saved["nickname"] == "Senpai"
+
+
+def test_load_user_config_ignores_env_vars_when_config_exists(tmp_path):
+    """Existing config file takes precedence over env vars."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({
+        "style": "warm-boy",
+        "nickname": "Darling",
+        "enabled": True,
+        "events": {"sessionstart": True, "sessionend": True,
+                   "notification": True, "stop": True},
+        "persona_override": None,
+    }))
+    env = {
+        "CLAUDE_PLUGIN_OPTION_STYLE": "kawaii",
+        "CLAUDE_PLUGIN_OPTION_NICKNAME": "Senpai",
+    }
+    with patch("voice_buddy.config.get_config_dir", return_value=tmp_path), \
+         patch.dict(os.environ, env, clear=False):
+        config = load_user_config()
+    assert config["style"] == "warm-boy"
+    assert config["nickname"] == "Darling"

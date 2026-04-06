@@ -73,3 +73,27 @@ def test_all_prepackaged_audio_dirs_exist():
     for style_id in expected:
         path = audio_dir / style_id
         assert path.exists(), f"Missing audio dir: {style_id}"
+
+
+def test_bin_wrapper_exists_and_executable():
+    path = REPO_ROOT / "bin" / "voice-buddy"
+    assert path.exists(), "Missing bin/voice-buddy wrapper"
+    import os
+    assert os.access(path, os.X_OK), "bin/voice-buddy is not executable"
+
+
+def test_plugin_json_has_user_config():
+    path = REPO_ROOT / ".claude-plugin" / "plugin.json"
+    data = json.loads(path.read_text())
+    assert "userConfig" in data
+    assert "style" in data["userConfig"]
+    assert "nickname" in data["userConfig"]
+    assert data["userConfig"]["style"]["sensitive"] is False
+    assert data["userConfig"]["nickname"]["sensitive"] is False
+
+
+def test_slash_command_exists():
+    path = REPO_ROOT / "commands" / "voice-buddy.md"
+    assert path.exists()
+    content = path.read_text()
+    assert "voice-buddy config" in content

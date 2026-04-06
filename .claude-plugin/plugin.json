@@ -1,11 +1,21 @@
 {
   "name": "voice-buddy",
   "description": "CC - personality-driven voice companion for Claude Code",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": {
     "name": "luyao618"
   },
   "repository": "https://github.com/luyao618/Claude-Code-Voice-Buddy",
   "license": "MIT",
-  "keywords": ["voice", "tts", "personality", "companion"]
+  "keywords": ["voice", "tts", "personality", "companion"],
+  "userConfig": {
+    "style": {
+      "description": "Voice style: cute-girl (Chinese, sweet), elegant-lady (Chinese, graceful), warm-boy (Chinese, warm), secretary (English, professional), kawaii (Japanese, cute). Default: cute-girl",
+      "sensitive": false
+    },
+    "nickname": {
+      "description": "How CC addresses you (e.g. Master, Boss, Senpai). Default: Master",
+      "sensitive": false
+    }
+  }
 }

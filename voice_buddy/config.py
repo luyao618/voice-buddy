@@ -52,11 +52,18 @@ def load_user_config() -> dict:
         merged["events"] = {**DEFAULT_CONFIG["events"], **user_config.get("events", {})}
         return merged
     else:
-        # First run: create defaults
+        # First run: create defaults, applying plugin userConfig env vars if set
+        defaults = copy.deepcopy(DEFAULT_CONFIG)
+        env_style = os.environ.get("CLAUDE_PLUGIN_OPTION_STYLE")
+        env_nickname = os.environ.get("CLAUDE_PLUGIN_OPTION_NICKNAME")
+        if env_style:
+            defaults["style"] = env_style
+        if env_nickname:
+            defaults["nickname"] = env_nickname
         config_dir.mkdir(parents=True, exist_ok=True)
         with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(DEFAULT_CONFIG, f, indent=2, ensure_ascii=False)
-        return copy.deepcopy(DEFAULT_CONFIG)
+            json.dump(defaults, f, indent=2, ensure_ascii=False)
+        return defaults
 
 
 def save_user_config(config: dict) -> None:

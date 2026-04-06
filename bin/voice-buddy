@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Voice Buddy CLI wrapper
+# Auto-sets PYTHONPATH so the command works from any directory.
+# When installed as a Claude Code plugin, bin/ is added to PATH automatically.
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$SCRIPT_DIR")}"
+
+PYTHONPATH="$PLUGIN_ROOT" exec python3 -m voice_buddy.cli "$@"
