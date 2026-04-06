@@ -131,5 +131,7 @@ def run() -> None:
 
     try:
         handle_hook_event(data)
+    except SystemExit:
+        raise  # Let sys.exit(2) propagate for Stop hook blocking
     except Exception as e:
         logger.debug(f"Error handling event: {e}")

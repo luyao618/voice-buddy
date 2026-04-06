@@ -127,7 +127,7 @@ def process_stop_event(data: dict, user_config: dict = None) -> None:
     if not _should_trigger(message):
         return
 
-    # Build style-aware additionalContext
+    # Build style-aware context for stderr
     style_id = user_config.get("style", "cute-girl")
     nickname = user_config.get("nickname", "Master")
     persona_override = user_config.get("persona_override")
@@ -136,22 +136,22 @@ def process_stop_event(data: dict, user_config: dict = None) -> None:
     style = load_style(style_id)
     agent_name = style["agent"] if style else "voice-buddy-cute-girl"
 
-    context_parts = [
-        f"Voice Buddy Stop: nickname={nickname}, style={style_id}",
-        f"persona_override={'null' if persona_override is None else persona_override}",
-        f"Task summary: {message[:200]}",
-        f"Generate a {style_id} style one-sentence summary addressing the user as {nickname},",
-        f'then call: PYTHONPATH="${{CLAUDE_PLUGIN_ROOT}}" python3 -m voice_buddy.subagent_tts \'<your sentence>\'',
-    ]
-    additional_context = ". ".join(context_parts)
+    summary = message[:150] if len(message) > 150 else message
 
-    output = {
-        "decision": "block",
-        "reason": "Voice Buddy is generating a voice response",
-        "hookSpecificOutput": {
-            "hookEventName": "Stop",
-            "additionalContext": additional_context,
-        },
-    }
+    persona_line = ""
+    if persona_override:
+        persona_line = f"Persona override: {persona_override}\n"
 
-    print(json.dumps(output, ensure_ascii=False))
+    # Exit code 2: Claude Code blocks the stop and feeds stderr back to Claude.
+    # Instruct Claude to call the style-specific agent, then TTS.
+    print(
+        f"REQUIRED ACTION — Voice Buddy ({style_id}):\n"
+        f"Nickname: {nickname}\n"
+        f"{persona_line}"
+        f"Task summary: {summary}\n\n"
+        f"Generate a {style_id} style one-sentence summary addressing the user as {nickname}, "
+        f"then call Bash to speak it:\n"
+        f'PYTHONPATH="${{CLAUDE_PLUGIN_ROOT}}" python3 -m voice_buddy.subagent_tts \'<your sentence>\'',
+        file=sys.stderr,
+    )
+    sys.exit(2)
