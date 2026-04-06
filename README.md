@@ -41,21 +41,33 @@ Voice Buddy 接入 [Claude Code 的 Hook 系统](https://docs.anthropic.com/en/d
 
 #### 环境要求
 
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 - Python 3.9+
 - 音频播放器（macOS: `afplay` 内置, Linux: `paplay`/`aplay`/`mpg123`）
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 
-#### 安装
+#### 安装方式
+
+**方式 A：Self-hosted Marketplace（推荐）**
+
+在 Claude Code 中运行：
+```
+/plugin marketplace add luyao618/Claude-Code-Voice-Buddy
+/plugin install voice-buddy
+```
+
+安装完成后 Hook 自动注册，无需手动配置。
+
+**方式 B：Official Marketplace**
+
+> 🚧 Coming Soon — 提交审核中，通过后可在 Claude Code Discover 面板一键安装。
+
+**方式 C：开发者手动安装**
 
 ```bash
 git clone https://github.com/luyao618/Claude-Code-Voice-Buddy.git
 cd Claude-Code-Voice-Buddy
 pip install -r requirements.txt
-```
 
-#### 配置 Hook
-
-```bash
 # 安装到当前项目
 python3 -m voice_buddy.cli setup
 
@@ -162,21 +174,33 @@ Voice Buddy hooks into [Claude Code's hook system](https://docs.anthropic.com/en
 
 #### Prerequisites
 
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 - Python 3.9+
 - Audio player (macOS: `afplay` built-in, Linux: `paplay`/`aplay`/`mpg123`)
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 
-#### Install
+#### Installation
+
+**Path A: Self-hosted Marketplace (Recommended)**
+
+Run inside Claude Code:
+```
+/plugin marketplace add luyao618/Claude-Code-Voice-Buddy
+/plugin install voice-buddy
+```
+
+Hooks are auto-registered on install — no manual setup needed.
+
+**Path B: Official Marketplace**
+
+> 🚧 Coming Soon — pending approval. Once approved, one-click install from the Claude Code Discover panel.
+
+**Path C: Developer Manual Install**
 
 ```bash
 git clone https://github.com/luyao618/Claude-Code-Voice-Buddy.git
 cd Claude-Code-Voice-Buddy
 pip install -r requirements.txt
-```
 
-#### Set Up Hooks
-
-```bash
 # Install to current project
 python3 -m voice_buddy.cli setup
 
