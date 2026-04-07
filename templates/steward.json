@@ -1,0 +1,26 @@
+{
+  "sessionstart": [
+    "Good day. Everything is prepared for you",
+    "Welcome back. All is in order",
+    "At your service. Shall we proceed",
+    "A pleasure to see you again",
+    "Your workspace is ready and waiting",
+    "Standing by, as always"
+  ],
+  "sessionend": [
+    "Very well. Until next time",
+    "A fine session indeed. Do rest well",
+    "Signing off. It has been a pleasure",
+    "All matters are settled. Good evening",
+    "Take care. I shall be here when you return",
+    "Well done today. You have earned a rest"
+  ],
+  "notification": [
+    "{{nickname}}, a moment of your time, if you please",
+    "{{nickname}}, there is a matter requiring your attention",
+    "{{nickname}}, I beg your pardon, but this needs a look",
+    "{{nickname}}, something has come up for your review",
+    "{{nickname}}, your input is kindly requested",
+    "{{nickname}}, may I draw your attention to this"
+  ]
+}

@@ -115,12 +115,14 @@ def test_setup_copies_agent_file(tmp_path):
     do_setup(project_dir=str(project_dir), repo_path=str(repo_path))
 
     agents_dir = project_dir / ".claude" / "agents"
-    # All 5 persona agent files should be copied
+    # All 7 persona agent files should be copied
     expected = [
         "voice-buddy-cute-girl.md",
         "voice-buddy-elegant-lady.md",
         "voice-buddy-warm-boy.md",
         "voice-buddy-secretary.md",
+        "voice-buddy-steward.md",
+        "voice-buddy-cyber-girl.md",
         "voice-buddy-kawaii.md",
     ]
     for fname in expected:

@@ -44,7 +44,7 @@ def test_hooks_json_exists_and_valid():
 
 def test_all_persona_files_exist():
     personas_dir = REPO_ROOT / "personas"
-    expected = ["cute-girl", "elegant-lady", "warm-boy", "secretary", "kawaii"]
+    expected = ["cute-girl", "elegant-lady", "warm-boy", "secretary", "steward", "cyber-girl", "kawaii"]
     for style_id in expected:
         path = personas_dir / f"{style_id}.json"
         assert path.exists(), f"Missing persona: {style_id}"
@@ -52,7 +52,7 @@ def test_all_persona_files_exist():
 
 def test_all_template_files_exist():
     templates_dir = REPO_ROOT / "templates"
-    expected = ["cute-girl", "elegant-lady", "warm-boy", "secretary", "kawaii"]
+    expected = ["cute-girl", "elegant-lady", "warm-boy", "secretary", "steward", "cyber-girl", "kawaii"]
     for style_id in expected:
         path = templates_dir / f"{style_id}.json"
         assert path.exists(), f"Missing template: {style_id}"
@@ -65,6 +65,8 @@ def test_all_agent_files_exist():
         "voice-buddy-elegant-lady",
         "voice-buddy-warm-boy",
         "voice-buddy-secretary",
+        "voice-buddy-steward",
+        "voice-buddy-cyber-girl",
         "voice-buddy-kawaii",
     ]
     for name in expected:
@@ -74,7 +76,7 @@ def test_all_agent_files_exist():
 
 def test_all_prepackaged_audio_dirs_exist():
     audio_dir = REPO_ROOT / "assets" / "audio"
-    expected = ["cute-girl", "elegant-lady", "warm-boy", "secretary", "kawaii"]
+    expected = ["cute-girl", "elegant-lady", "warm-boy", "secretary", "steward", "cyber-girl", "kawaii"]
     for style_id in expected:
         path = audio_dir / style_id
         assert path.exists(), f"Missing audio dir: {style_id}"

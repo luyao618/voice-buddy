@@ -15,7 +15,7 @@
 关闭会话          → "辛苦了，好好休息一下"               (warm-boy)
 ```
 
-### 5 种风格，3 种语言
+### 7 种风格，3 种语言
 
 | 风格 | 语言 | 描述 | TTS 语音 | 默认称呼 |
 |------|------|------|----------|----------|
@@ -23,6 +23,8 @@
 | **elegant-lady** | 中文 | 优雅知性 | zh-CN-XiaoxiaoNeural | Master |
 | **warm-boy** | 中文 | 温暖体贴 | zh-CN-YunxiNeural | Master |
 | **secretary** | 英文 | 专业干练 | en-US-JennyNeural | Boss |
+| **steward** | 英文 | 英式管家 | en-GB-RyanNeural | Sir |
+| **cyber-girl** | 英文 | 赛博机器姬 | en-GB-SoniaNeural | Commander |
 | **kawaii** | 日文 | 元气可爱 | ja-JP-NanamiNeural | Senpai |
 
 ### 工作原理
@@ -127,7 +129,7 @@ Task completed         → "Senpai、バグ直したよ~"              (kawaii)
 Close session          → "辛苦了，好好休息一下"               (warm-boy)
 ```
 
-### 5 Styles, 3 Languages
+### 7 Styles, 3 Languages
 
 | Style | Language | Description | TTS Voice | Default Nickname |
 |-------|----------|-------------|-----------|-----------------|
@@ -135,6 +137,8 @@ Close session          → "辛苦了，好好休息一下"               (warm-
 | **elegant-lady** | Chinese | Graceful, intellectual | zh-CN-XiaoxiaoNeural | Master |
 | **warm-boy** | Chinese | Warm, caring | zh-CN-YunxiNeural | Master |
 | **secretary** | English | Professional, efficient | en-US-JennyNeural | Boss |
+| **steward** | English | British butler, composed | en-GB-RyanNeural | Sir |
+| **cyber-girl** | English | Cyberpunk femme, cold | en-GB-SoniaNeural | Commander |
 | **kawaii** | Japanese | Cute, energetic | ja-JP-NanamiNeural | Senpai |
 
 ### How It Works
@@ -260,16 +264,18 @@ Claude-Code-Voice-Buddy/
 │   └── marketplace.json
 ├── hooks/hooks.json         # Hook declarations (auto-registered)
 ├── bin/voice-buddy          # CLI wrapper (auto-added to PATH)
-├── agents/                  # 5 style-specific agent personas
+├── agents/                  # 7 style-specific agent personas
 │   ├── voice-buddy-cute-girl.md
 │   ├── voice-buddy-elegant-lady.md
 │   ├── voice-buddy-warm-boy.md
 │   ├── voice-buddy-secretary.md
+│   ├── voice-buddy-steward.md
+│   ├── voice-buddy-cyber-girl.md
 │   └── voice-buddy-kawaii.md
 ├── commands/voice-buddy.md  # /voice-buddy slash command
 ├── personas/                # Style definitions (TTS voice, rate, pitch)
 ├── templates/               # Per-style phrase templates
-├── assets/audio/            # 60 pre-packaged MP3 files
+├── assets/audio/            # 84 pre-packaged MP3 files
 ├── voice_buddy/             # Python core
 │   ├── main.py              # Hook entry point
 │   ├── config.py            # Cross-platform user config

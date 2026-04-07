@@ -5,11 +5,11 @@ def test_styles_dir_exists():
     assert STYLES_DIR.is_dir()
 
 
-def test_list_styles_returns_five():
+def test_list_styles_returns_seven():
     styles = list_styles()
-    assert len(styles) == 5
+    assert len(styles) == 7
     ids = {s["id"] for s in styles}
-    assert ids == {"cute-girl", "elegant-lady", "warm-boy", "secretary", "kawaii"}
+    assert ids == {"cute-girl", "elegant-lady", "warm-boy", "secretary", "steward", "cyber-girl", "kawaii"}
 
 
 def test_load_style_cute_girl():
@@ -57,3 +57,23 @@ def test_load_style_kawaii():
 def test_load_style_unknown_returns_none():
     style = load_style("nonexistent")
     assert style is None
+
+
+def test_load_style_steward():
+    style = load_style("steward")
+    assert style["id"] == "steward"
+    assert style["language"] == "en-GB"
+    assert style["tts"]["voice"] == "en-GB-RyanNeural"
+    assert style["default_nickname"] == "Sir"
+    assert style["agent"] == "voice-buddy-steward"
+
+
+def test_load_style_cyber_girl():
+    style = load_style("cyber-girl")
+    assert style["id"] == "cyber-girl"
+    assert style["language"] == "en-GB"
+    assert style["tts"]["voice"] == "en-GB-SoniaNeural"
+    assert style["tts"]["rate"] == "-5%"
+    assert style["tts"]["pitch"] == "-3Hz"
+    assert style["default_nickname"] == "Commander"
+    assert style["agent"] == "voice-buddy-cyber-girl"

@@ -1,0 +1,26 @@
+{
+  "sessionstart": [
+    "Neural link active. Systems online",
+    "Connection established. Welcome back",
+    "Uplink confirmed. All cores operational",
+    "Interface loaded. Awaiting directives",
+    "Signal locked. Ready to engage",
+    "Booting up. All protocols initialized"
+  ],
+  "sessionend": [
+    "Disconnecting. Signal terminated",
+    "Session archived. Going dark",
+    "Powering down. Until next uplink",
+    "Link severed. Data saved",
+    "Logging off. Stay sharp out there",
+    "Shutdown sequence initiated. Goodbye"
+  ],
+  "notification": [
+    "{{nickname}}, incoming signal. Respond",
+    "{{nickname}}, alert triggered. Action required",
+    "{{nickname}}, anomaly detected. Your call",
+    "{{nickname}}, priority flag raised. Check in",
+    "{{nickname}}, new data point. Needs your eyes",
+    "{{nickname}}, interrupt received. Awaiting input"
+  ]
+}

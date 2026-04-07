@@ -1,7 +1,7 @@
 {
   "name": "voice-buddy",
   "description": "CC - personality-driven voice companion for Claude Code",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "author": {
     "name": "luyao618"
   },
@@ -11,7 +11,7 @@
   "userConfig": {
     "style": {
       "title": "Voice Style",
-      "description": "cute-girl (Chinese, sweet), elegant-lady (Chinese, graceful), warm-boy (Chinese, warm), secretary (English, professional), kawaii (Japanese, cute)",
+      "description": "cute-girl (Chinese, sweet), elegant-lady (Chinese, graceful), warm-boy (Chinese, warm), secretary (English, professional), steward (English, British butler), cyber-girl (English, cyberpunk), kawaii (Japanese, cute)",
       "type": "string",
       "sensitive": false
     },
