@@ -114,6 +114,42 @@ Config file location:
 | **Notification** | Claude sends a notification | Real-time TTS (with nickname) |
 | **Stop** | Claude finishes a task | AI-generated summary |
 
+### 🔇 Global Hotkey to Stop Current Playback (macOS)
+
+Press **F2** at any time to immediately silence whatever Voice Buddy is currently playing — useful when a colleague walks over, you take a phone call, or a meeting starts unexpectedly.
+
+**Required system settings:**
+
+1. **System Settings → Keyboard → "Use F1, F2, etc. as standard function keys"** must be **enabled**, otherwise F2 sends "brightness up" instead of a key event the listener can see. (You can also use `fn+F2` if you prefer to leave the default behavior.)
+2. **System Settings → Privacy & Security → Accessibility** must list and check the Python interpreter that runs voice-buddy. Run `voice-buddy hotkey-doctor` to see the exact path that needs to be granted.
+
+**CLI surface:**
+
+```bash
+# Stop without using the hotkey (e.g. from another terminal)
+voice-buddy stop
+
+# Change the bound key
+voice-buddy config --hotkey F3
+
+# Disable / re-enable the hotkey listener
+voice-buddy config --disable-hotkey
+voice-buddy config --enable-hotkey
+
+# Diagnose Accessibility, fn-key mode, listener liveness, etc.
+voice-buddy hotkey-doctor
+voice-buddy hotkey-doctor --non-interactive   # CI-friendly
+voice-buddy hotkey-doctor --json              # machine-readable
+```
+
+**Behavior notes:**
+
+- F2 only stops the **currently playing** audio — it does not cancel queued TTS that hasn't started yet.
+- macOS only. The dependency `pyobjc-framework-Quartz` is installed automatically on Darwin.
+- The listener subprocess starts when you open Claude Code and self-exits ~30 s after the last session closes.
+- If you recreate your virtualenv or upgrade Python, Accessibility may silently revoke (it is bound to the executable path). `voice-buddy hotkey-doctor` will warn you when this happens — re-grant the new path.
+- See `docs/manual-tests.md` for the full QA checklist.
+
 ### Architecture
 
 ```
@@ -303,6 +339,42 @@ voice-buddy test notification
 | **SessionEnd** | 关闭会话 | Pre-packaged MP3 |
 | **Notification** | Claude 发送通知 | 实时 TTS（含称呼） |
 | **Stop** | Claude 完成任务 | AI 生成个性化总结 |
+
+### 🔇 全局快捷键停止当前播放（macOS）
+
+随时按 **F2** 可以立即让 Voice Buddy 安静下来——同事突然过来讲话、接电话、临时会议都不会被打扰。
+
+**必备系统设置：**
+
+1. **系统设置 → 键盘 → 「将 F1、F2 等键用作标准功能键」必须勾选**，否则 F2 会被识别成「亮度增加」，监听器收不到按键事件。（如果你想保留默认行为，也可以用 `fn+F2`。）
+2. **系统设置 → 隐私与安全性 → 辅助功能** 中需要勾选运行 voice-buddy 的 Python 解释器。运行 `voice-buddy hotkey-doctor` 可以看到需要授权的具体路径。
+
+**命令行：**
+
+```bash
+# 不用快捷键也能停（例如在另一个终端窗口）
+voice-buddy stop
+
+# 改键
+voice-buddy config --hotkey F3
+
+# 关闭 / 开启快捷键监听
+voice-buddy config --disable-hotkey
+voice-buddy config --enable-hotkey
+
+# 体检：辅助功能、fn 键模式、监听器存活等
+voice-buddy hotkey-doctor
+voice-buddy hotkey-doctor --non-interactive   # 跳过交互按键
+voice-buddy hotkey-doctor --json              # 机器可读输出
+```
+
+**行为说明：**
+
+- F2 只会打断**当前正在播**的那一段音频，不会取消还没开始的 TTS 队列。
+- 仅支持 macOS。`pyobjc-framework-Quartz` 在 Darwin 上会自动安装。
+- 监听器进程在 Claude Code 打开时启动；最后一个会话关闭后约 30 秒自动退出。
+- 如果你重建虚拟环境或升级 Python，「辅助功能」授权可能会悄悄失效（绑定可执行路径）。`voice-buddy hotkey-doctor` 会提示漂移——把新路径重新授权一次即可。
+- 完整 QA 清单见 `docs/manual-tests.md`。
 
 ## License
 
