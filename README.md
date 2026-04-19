@@ -118,12 +118,83 @@ Config file location:
 
 Press **F2** at any time to immediately silence whatever Voice Buddy is currently playing — useful when a colleague walks over, you take a phone call, or a meeting starts unexpectedly.
 
-**Required system settings:**
+#### One-time setup (required after first install)
 
-1. **System Settings → Keyboard → "Use F1, F2, etc. as standard function keys"** must be **enabled**, otherwise F2 sends "brightness up" instead of a key event the listener can see. (You can also use `fn+F2` if you prefer to leave the default behavior.)
-2. **System Settings → Privacy & Security → Accessibility** must list and check the Python interpreter that runs voice-buddy. Run `voice-buddy hotkey-doctor` to see the exact path that needs to be granted.
+The marketplace installer copies plugin files but does **not** install Python dependencies or grant macOS permissions. You need to do these three things once:
 
-**CLI surface:**
+##### Step 1 — Install the macOS dependency
+
+```bash
+pip3 install 'pyobjc-framework-Quartz>=10.0,<12.0'
+```
+
+If you have multiple Python interpreters (system, Homebrew, pyenv, conda, depot_tools), make sure to install into the **same one** that runs `voice-buddy`. To find out which one:
+
+```bash
+voice-buddy hotkey-doctor --non-interactive
+# Look for the row: [OK] python interpreter   current=/path/to/python3
+```
+
+Install pyobjc into that exact interpreter:
+
+```bash
+/path/to/python3 -m pip install 'pyobjc-framework-Quartz>=10.0,<12.0'
+```
+
+##### Step 2 — Enable "Use F1, F2, etc. as standard function keys"
+
+Open **System Settings → Keyboard → Keyboard Shortcuts… → Function Keys** and turn ON **"Use F1, F2, etc. keys as standard function keys"**.
+
+Without this, F2 is intercepted by macOS as "brightness up" before any app can see it.
+
+##### Step 3 — Grant Accessibility to your Python interpreter
+
+Run the doctor to find the exact path:
+
+```bash
+voice-buddy hotkey-doctor --non-interactive
+# Look for: [FAIL] Accessibility granted   grant Accessibility to: /path/to/python3
+```
+
+Then open **System Settings → Privacy & Security → Accessibility**:
+
+1. Click the **+** button.
+2. Press **⌘ + Shift + G** to open "Go to Folder", paste the directory of that python path, hit Enter.
+3. **If `python3` is a symlink** (common with depot_tools / pyenv shims), it cannot be selected directly. Instead select the real binary it points to (e.g. `python3.11`). To check:
+   ```bash
+   ls -la /path/to/python3
+   ```
+4. If macOS still refuses to select the file, open the directory in Finder (`open /path/to/bin`) and **drag the python binary into the Accessibility list** instead.
+5. Make sure the toggle next to the new entry is **green / on**.
+
+##### Step 4 — Restart Claude Code
+
+Close and reopen Claude Code so SessionStart fires and spawns the listener subprocess.
+
+##### Verify everything works
+
+```bash
+voice-buddy hotkey-doctor
+```
+
+Expected (interactive mode will ask you to press F2):
+
+```
+[OK  ] python interpreter
+[OK  ] pyobjc importable
+[OK  ] Accessibility granted
+[OK  ] EventTap reachability
+[OK  ] F-key fn-mode          F2 keydown observed
+[OK  ] coord.lock writable
+[OK  ] listener liveness      pid=...
+[OK  ] version handshake
+[OK  ] sessions registry
+[OK  ] playback_pids sanity
+```
+
+If any row says FAIL or WARN, the detail message tells you what to fix.
+
+#### Daily use
 
 ```bash
 # Stop without using the hotkey (e.g. from another terminal)
@@ -136,19 +207,29 @@ voice-buddy config --hotkey F3
 voice-buddy config --disable-hotkey
 voice-buddy config --enable-hotkey
 
-# Diagnose Accessibility, fn-key mode, listener liveness, etc.
+# Diagnose
 voice-buddy hotkey-doctor
-voice-buddy hotkey-doctor --non-interactive   # CI-friendly
+voice-buddy hotkey-doctor --non-interactive   # CI-friendly, skips the F2 press
 voice-buddy hotkey-doctor --json              # machine-readable
 ```
 
-**Behavior notes:**
+#### How the listener lifecycle works
 
-- F2 only stops the **currently playing** audio — it does not cancel queued TTS that hasn't started yet.
-- macOS only. The dependency `pyobjc-framework-Quartz` is installed automatically on Darwin.
-- The listener subprocess starts when you open Claude Code and self-exits ~30 s after the last session closes.
-- If you recreate your virtualenv or upgrade Python, Accessibility may silently revoke (it is bound to the executable path). `voice-buddy hotkey-doctor` will warn you when this happens — re-grant the new path.
+- The listener is a singleton subprocess. **One per machine**, no matter how many Claude Code windows you open.
+- **Spawn**: SessionStart hook checks if a live listener exists; if not, spawns one (detached, ~500 ms cold start).
+- **Self-exit**: When the last Claude Code session ends, the listener notices via a 30 s idle timer and exits cleanly.
+- **F2 = stop currently playing audio only.** Queued TTS that hasn't started playing yet is not cancelled.
 - See `docs/manual-tests.md` for the full QA checklist.
+
+#### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `voice-buddy hotkey-doctor` says `[FAIL] pyobjc importable` | pyobjc not installed in the right interpreter | Run Step 1 against the exact path the doctor reports |
+| `[FAIL] Accessibility granted` after granting it | Granted the wrong interpreter, or the path is a symlink | Re-run doctor; grant the path it reports; if symlink, grant the real binary |
+| F2 still doesn't work after all OK rows | Listener was spawned before pyobjc was installed | Restart Claude Code (or `pkill -f hotkey_listener` then reopen) |
+| F2 doesn't work after upgrading Python / recreating venv | Accessibility grant is bound to the executable path; the new python is a different file | Doctor will show `[WARN] python interpreter` with `DRIFT`; re-grant Accessibility to the new path |
+| Want to verify in a CI pipeline | — | `voice-buddy hotkey-doctor --non-interactive --json` |
 
 ### Architecture
 
@@ -344,15 +425,89 @@ voice-buddy test notification
 
 随时按 **F2** 可以立即让 Voice Buddy 安静下来——同事突然过来讲话、接电话、临时会议都不会被打扰。
 
-**必备系统设置：**
+#### 首次安装后必做的设置
 
-1. **系统设置 → 键盘 → 「将 F1、F2 等键用作标准功能键」必须勾选**，否则 F2 会被识别成「亮度增加」，监听器收不到按键事件。（如果你想保留默认行为，也可以用 `fn+F2`。）
-2. **系统设置 → 隐私与安全性 → 辅助功能** 中需要勾选运行 voice-buddy 的 Python 解释器。运行 `voice-buddy hotkey-doctor` 可以看到需要授权的具体路径。
+Marketplace 安装器只会复制插件文件，**不会**安装 Python 依赖，也不会授权 macOS 权限。安装后需要做下面三件事，做一次就行：
 
-**命令行：**
+##### 第 ① 步 — 安装 macOS 依赖
 
 ```bash
-# 不用快捷键也能停（例如在另一个终端窗口）
+pip3 install 'pyobjc-framework-Quartz>=10.0,<12.0'
+```
+
+如果你电脑上有多个 Python 解释器（系统自带 / Homebrew / pyenv / conda / depot_tools 等），**必须装到运行 `voice-buddy` 的那一个**里。先用 doctor 查出来：
+
+```bash
+voice-buddy hotkey-doctor --non-interactive
+# 看这一行：[OK] python interpreter   current=/path/to/python3
+```
+
+然后用那个路径直接装：
+
+```bash
+/path/to/python3 -m pip install 'pyobjc-framework-Quartz>=10.0,<12.0'
+```
+
+##### 第 ② 步 — 把 F1/F2 设成标准功能键
+
+打开 **系统设置 → 键盘 → 键盘快捷键… → 功能键**，把 **「将 F1、F2 等键用作标准功能键」打勾**。
+
+不勾的话 F2 会被 macOS 截为「亮度增加」，应用根本收不到这个键。
+
+##### 第 ③ 步 — 给 Python 解释器授权辅助功能
+
+跑 doctor 拿到精确路径：
+
+```bash
+voice-buddy hotkey-doctor --non-interactive
+# 看这一行：[FAIL] Accessibility granted   grant Accessibility to: /path/to/python3
+```
+
+然后打开 **系统设置 → 隐私与安全性 → 辅助功能**：
+
+1. 点 **+** 号
+2. 弹出文件选择器后按 **⌘ + Shift + G**，把上面 python 所在目录粘进去回车
+3. **如果 `python3` 是符号链接**（depot_tools / pyenv shim 经常这样），无法直接选中。改选它指向的真实二进制文件（例如 `python3.11`）。检查方法：
+   ```bash
+   ls -la /path/to/python3
+   ```
+4. 如果文件选择器还是不让选，**打开 Finder 把那个 python 二进制直接拖到「辅助功能」列表里**：
+   ```bash
+   open /path/to/bin
+   ```
+5. 确认新增那一行右边的开关是 **绿色（开）**
+
+##### 第 ④ 步 — 重启 Claude Code
+
+关闭并重新打开 Claude Code，让 SessionStart 钩子触发监听器进程启动。
+
+##### 验证
+
+```bash
+voice-buddy hotkey-doctor
+```
+
+期望看到（互动模式会让你按一次 F2）：
+
+```
+[OK  ] python interpreter
+[OK  ] pyobjc importable
+[OK  ] Accessibility granted
+[OK  ] EventTap reachability
+[OK  ] F-key fn-mode          F2 keydown observed
+[OK  ] coord.lock writable
+[OK  ] listener liveness      pid=...
+[OK  ] version handshake
+[OK  ] sessions registry
+[OK  ] playback_pids sanity
+```
+
+任何一行 FAIL 或 WARN，detail 列会告诉你怎么修。
+
+#### 日常使用
+
+```bash
+# 不靠快捷键也能停（例如另一个终端窗口）
 voice-buddy stop
 
 # 改键
@@ -362,19 +517,29 @@ voice-buddy config --hotkey F3
 voice-buddy config --disable-hotkey
 voice-buddy config --enable-hotkey
 
-# 体检：辅助功能、fn 键模式、监听器存活等
+# 体检
 voice-buddy hotkey-doctor
-voice-buddy hotkey-doctor --non-interactive   # 跳过交互按键
-voice-buddy hotkey-doctor --json              # 机器可读输出
+voice-buddy hotkey-doctor --non-interactive   # CI 友好，跳过按键
+voice-buddy hotkey-doctor --json              # 机器可读
 ```
 
-**行为说明：**
+#### 监听器生命周期
 
-- F2 只会打断**当前正在播**的那一段音频，不会取消还没开始的 TTS 队列。
-- 仅支持 macOS。`pyobjc-framework-Quartz` 在 Darwin 上会自动安装。
-- 监听器进程在 Claude Code 打开时启动；最后一个会话关闭后约 30 秒自动退出。
-- 如果你重建虚拟环境或升级 Python，「辅助功能」授权可能会悄悄失效（绑定可执行路径）。`voice-buddy hotkey-doctor` 会提示漂移——把新路径重新授权一次即可。
-- 完整 QA 清单见 `docs/manual-tests.md`。
+- 监听器是**单例**进程，整台机器**只有一个**，不管开几个 Claude Code 窗口
+- **启动**：SessionStart 钩子检查是否有活监听器；没有就 spawn 一个（detached，约 500ms 冷启动）
+- **退出**：最后一个 Claude Code 会话关闭后，监听器内置的 30 秒空闲定时器会发现 sessions/ 空了，自动退出
+- **F2 只打断当前正在播的那一段音频**，不会取消还没开始播的 TTS 队列
+- 完整 QA 清单见 `docs/manual-tests.md`
+
+#### 故障排查
+
+| 现象 | 原因 | 解决 |
+|------|------|------|
+| doctor 显示 `[FAIL] pyobjc importable` | pyobjc 没装到对的解释器 | 用第 ① 步对着 doctor 报告的路径重装 |
+| 已经授权了，doctor 还报 `[FAIL] Accessibility` | 授权了错的解释器，或路径是符号链接 | 重跑 doctor 看它给的路径；是符号链接就授权真实二进制 |
+| 所有 OK 但 F2 还是不响应 | 监听器是在你装 pyobjc 之前 spawn 的，已经因为 import 失败退出 | 重启 Claude Code（或 `pkill -f hotkey_listener` 再重开） |
+| 升级 Python / 重建 venv 后 F2 失效 | 辅助功能授权绑定可执行文件路径，新 python 是不同文件 | doctor 会显示 `[WARN] python interpreter` 含 `DRIFT`，重新授权新路径 |
+| 想在 CI 里验证 | — | `voice-buddy hotkey-doctor --non-interactive --json` |
 
 ## License
 
