@@ -1,6 +1,9 @@
 # Worktrees
 .worktrees/
 
+# OMC (oh-my-claudecode) workspace
+.omc/
+
 # Python
 __pycache__/
 .pytest_cache/
