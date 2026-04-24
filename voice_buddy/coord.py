@@ -18,14 +18,19 @@ the CLI and hooks on any OS without paying the macOS-only import cost.
 
 from __future__ import annotations
 
-import fcntl
 import logging
 import os
 import signal
+import sys
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Optional
+
+if sys.platform != "win32":
+    import fcntl
+else:
+    fcntl = None  # type: ignore[assignment]
 
 from voice_buddy import config as _config
 
@@ -116,6 +121,11 @@ def coord_lock(blocking: bool = True) -> Iterator[None]:
     Released by `flock(LOCK_UN)` and again automatically when the fd closes.
     Kernel releases the lock on process death — crash-safe.
     """
+    if fcntl is None:
+        # Windows: no flock support, yield without locking.
+        yield
+        return
+
     lock_path = coord_lock_path()
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o644)

@@ -190,7 +190,17 @@ def do_test(event: str) -> None:
     if event_lower == "stop":
         print("(Stop event: testing injector path only, outputs additionalContext JSON)")
 
-    handle_hook_event(data)
+    try:
+        handle_hook_event(data)
+    except SystemExit:
+        pass  # Expected: injector calls sys.exit(2) on trigger
+    finally:
+        # Clean up temp transcript file for stop events
+        if event_lower == "stop":
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
     print("Done!")
 
 
@@ -417,20 +427,33 @@ def main() -> None:
     elif args.command == "config":
         # Hotkey-related changes go through do_set_hotkey; classic style/nickname/event
         # changes go through do_config. Both can be combined in a single invocation.
-        if args.hotkey is not None or args.disable_hotkey or args.enable_hotkey:
-            rc = do_set_hotkey(
-                hotkey=args.hotkey,
-                disable=args.disable_hotkey,
-                enable=args.enable_hotkey,
-            )
-            if rc != 0:
-                sys.exit(rc)
-        if (args.style is not None or args.nickname is not None
-                or args.disable is not None or args.enable is not None
-                or args.edit_persona):
-            do_config(style=args.style, nickname=args.nickname,
-                      disable=args.disable, enable=args.enable,
-                      edit_persona=args.edit_persona)
+        has_config_args = (args.style is not None or args.nickname is not None
+                          or args.disable is not None or args.enable is not None
+                          or args.edit_persona)
+        has_hotkey_args = (args.hotkey is not None or args.disable_hotkey or args.enable_hotkey)
+
+        if not has_config_args and not has_hotkey_args:
+            # No arguments: show current config
+            from voice_buddy.config import load_user_config
+            cfg = load_user_config()
+            print(f"style={cfg['style']}")
+            print(f"nickname={cfg['nickname']}")
+            print(f"enabled={cfg['enabled']}")
+            print(f"events={cfg['events']}")
+            print(f"hotkey={cfg.get('hotkey', 'F2')} enabled={cfg.get('hotkey_enabled', True)}")
+        else:
+            if has_hotkey_args:
+                rc = do_set_hotkey(
+                    hotkey=args.hotkey,
+                    disable=args.disable_hotkey,
+                    enable=args.enable_hotkey,
+                )
+                if rc != 0:
+                    sys.exit(rc)
+            if has_config_args:
+                do_config(style=args.style, nickname=args.nickname,
+                          disable=args.disable, enable=args.enable,
+                          edit_persona=args.edit_persona)
     elif args.command == "on":
         do_on()
     elif args.command == "off":

@@ -74,10 +74,13 @@ def play_audio(file_path: str | Path) -> bool:
     try:
         if audio_player[0] == "WINDOWS":
             if winsound is not None:
-                winsound.PlaySound(
-                    str(file_path),
-                    winsound.SND_FILENAME | winsound.SND_NODEFAULT,
+                import threading
+                t = threading.Thread(
+                    target=winsound.PlaySound,
+                    args=(str(file_path), winsound.SND_FILENAME | winsound.SND_NODEFAULT),
+                    daemon=False,
                 )
+                t.start()
                 return True
             return False
         else:

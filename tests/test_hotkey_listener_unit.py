@@ -108,14 +108,13 @@ def test_apply_config_reload_rebinds_when_keycode_changes(tmp_vb_dir):
 def test_idle_tick_self_exit_when_no_sessions(tmp_vb_dir):
     from voice_buddy import coord, hotkey_listener
 
-    # No session files exist; idle tick should call os._exit(0).
+    # No session files exist; idle tick should call _stop_runloop().
     coord.write_atomic(coord.listener_pid_path(), str(os.getpid()))
     coord.write_atomic(coord.listener_version_path(), "x")
 
-    with mock.patch("os._exit", side_effect=SystemExit) as exit_mock:
-        with pytest.raises(SystemExit):
-            hotkey_listener._idle_tick()
-        exit_mock.assert_called_once_with(0)
+    with mock.patch.object(hotkey_listener, "_stop_runloop") as stop_mock:
+        hotkey_listener._idle_tick()
+        stop_mock.assert_called_once()
 
     # Pidfile and version file should be removed before exit.
     assert not coord.listener_pid_path().exists()

@@ -35,6 +35,7 @@ _state = {
     "tap_ref": None,
     "run_loop_source": None,
     "config_dirty": False,
+    "self_exiting": False,     # set True when idle-tick initiates shutdown
 }
 
 
@@ -204,7 +205,9 @@ def _idle_tick():
             sessions = list(coord.sessions_dir().glob("*.alive"))
             if not sessions:
                 log.info("SELF_EXIT sessions_empty=true")
-                # Remove our pidfile + version while still holding the lock.
+                # Remove our pidfile + version while still holding the lock,
+                # then mark self_exiting so main()'s finally block skips
+                # redundant unlink (which would race with a new listener).
                 try:
                     coord.listener_pid_path().unlink()
                 except FileNotFoundError:
@@ -213,9 +216,9 @@ def _idle_tick():
                     coord.listener_version_path().unlink()
                 except FileNotFoundError:
                     pass
-                # os._exit so Python doesn't run finalizers that would also
-                # try to release the (already-released-on-exit) lock.
-                os._exit(0)
+                _state["self_exiting"] = True
+                # Stop the run loop; main()'s finally block handles tap cleanup.
+                _stop_runloop()
     except Exception as e:
         log.exception("idle tick error: %s", e)
 
@@ -323,14 +326,18 @@ def main() -> int:
         Quartz.CFRunLoopRun()
     finally:
         _remove_event_tap()
-        try:
-            coord.listener_pid_path().unlink()
-        except FileNotFoundError:
-            pass
-        try:
-            coord.listener_version_path().unlink()
-        except FileNotFoundError:
-            pass
+        # Only remove pidfile/version if NOT self-exiting (idle_tick already
+        # removed them under coord.lock; removing again would race with a
+        # newly-spawned replacement listener).
+        if not _state.get("self_exiting"):
+            try:
+                coord.listener_pid_path().unlink()
+            except FileNotFoundError:
+                pass
+            try:
+                coord.listener_version_path().unlink()
+            except FileNotFoundError:
+                pass
         log.info("listener exiting")
 
     return 0

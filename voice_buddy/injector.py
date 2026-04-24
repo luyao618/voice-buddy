@@ -8,9 +8,11 @@ from typing import Optional
 
 
 # Completion signal keywords (English)
+# Use word boundaries to reduce false positives (e.g. "not done yet" still
+# matches "done", but that's acceptable — the alternative of NLU is too heavy).
 _COMPLETION_EN = re.compile(
-    r"\b(?:done|complete[d]?|finish(?:ed)?|implement(?:ed)?|fix(?:ed)?|"
-    r"creat(?:ed|e)|refactor(?:ed)?|update[d]?|built|resolved|added)\b",
+    r"\b(?:done|completed?|finish(?:ed)?|implement(?:ed)?|fix(?:ed)?|"
+    r"created?|refactored?|updated?|built|resolved|added)\b",
     re.IGNORECASE,
 )
 

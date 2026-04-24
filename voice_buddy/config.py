@@ -67,8 +67,23 @@ def load_user_config() -> dict:
         if env_nickname:
             defaults["nickname"] = env_nickname
         config_dir.mkdir(parents=True, exist_ok=True)
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(defaults, f, indent=2, ensure_ascii=False)
+        # Atomic write to avoid corruption from concurrent first-run calls
+        import tempfile
+        fd, tmp_path = tempfile.mkstemp(
+            prefix="config.", suffix=".tmp", dir=str(config_dir),
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(defaults, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.rename(tmp_path, config_path)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
         return defaults
 
 

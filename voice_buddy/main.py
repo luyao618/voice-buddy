@@ -130,8 +130,11 @@ def handle_stop_event(data: dict, user_config: dict = None) -> None:
 
 def run() -> None:
     """Read hook JSON from stdin and process."""
-    # Setup debug logging
-    log_path = os.path.expanduser("~/voice-buddy-debug.log")
+    # Setup debug logging — write to config dir, not user home
+    from voice_buddy.config import get_config_dir
+    log_dir = get_config_dir() / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = str(log_dir / "voice-buddy-debug.log")
     logging.basicConfig(
         filename=log_path,
         level=logging.DEBUG,

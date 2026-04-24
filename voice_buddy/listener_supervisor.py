@@ -52,14 +52,18 @@ def _spawn_detached_listener() -> subprocess.Popen:
     log_path = coord.listener_log_path()
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_fp = open(log_path, "ab")
-    return subprocess.Popen(
-        [sys.executable, "-m", "voice_buddy.hotkey_listener"],
-        start_new_session=True,
-        stdin=subprocess.DEVNULL,
-        stdout=log_fp,
-        stderr=subprocess.STDOUT,
-        close_fds=True,
-    )
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "voice_buddy.hotkey_listener"],
+            start_new_session=True,
+            stdin=subprocess.DEVNULL,
+            stdout=log_fp,
+            stderr=subprocess.STDOUT,
+            close_fds=True,
+        )
+    finally:
+        log_fp.close()
+    return proc
 
 
 def ensure_listener_for_session(session_id: str) -> Optional[bool]:

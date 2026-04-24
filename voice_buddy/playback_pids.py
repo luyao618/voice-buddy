@@ -16,13 +16,18 @@ to a single lock owner, while keeping add() lock-free on the hot playback path.
 from __future__ import annotations
 
 import errno
-import fcntl
 import logging
 import os
 import signal
+import sys
 import tempfile
 from pathlib import Path
 from typing import List
+
+if sys.platform != "win32":
+    import fcntl
+else:
+    fcntl = None  # type: ignore[assignment]
 
 from voice_buddy.coord import vb_dir
 
@@ -115,6 +120,9 @@ class _LockCtx:
         self.fd = -1
 
     def __enter__(self) -> "_LockCtx":
+        if fcntl is None:
+            # Windows: no flock support, proceed without locking.
+            return self
         path = _lock_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         self.fd = os.open(str(path), os.O_CREAT | os.O_RDWR, 0o644)
@@ -122,6 +130,8 @@ class _LockCtx:
         return self
 
     def __exit__(self, *exc) -> None:
+        if fcntl is None or self.fd == -1:
+            return
         try:
             fcntl.flock(self.fd, fcntl.LOCK_UN)
         except OSError:

@@ -42,7 +42,13 @@ def synthesize_to_file(
 
 
 def _schedule_cleanup(file_path: str, delay: int = 30) -> None:
-    """Delete temp file after a delay, in a background thread."""
+    """Delete temp file after a delay, in a background thread.
+
+    The thread is daemon=True so it won't block process exit. If the process
+    exits early, the temp file is orphaned — acceptable since the OS /tmp
+    cleaner will eventually reclaim it, and deleting too early would break
+    playback (the audio player subprocess has the file open).
+    """
     import threading
 
     def _cleanup():
