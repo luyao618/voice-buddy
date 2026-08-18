@@ -25,6 +25,15 @@ command -v "$PYTHON" >/dev/null 2>&1 || {
   exit 1
 }
 
+# Fail fast with an actionable message rather than deep inside pip's resolver.
+# Stock macOS still ships /usr/bin/python3 as 3.9, which is below the floor.
+"$PYTHON" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' || {
+  echo "error: $PYTHON is $("$PYTHON" -V 2>&1), but this project requires >= 3.10." >&2
+  echo "       Pass a newer interpreter, e.g.:" >&2
+  echo "         PYTHON=python3.12 bash scripts/regen-constraints.sh" >&2
+  exit 1
+}
+
 echo "==> creating clean venv with $("$PYTHON" --version 2>&1)"
 # ensurepip ships with CPython, so this needs no pre-existing pip or uv.
 "$PYTHON" -m venv "$WORK"
