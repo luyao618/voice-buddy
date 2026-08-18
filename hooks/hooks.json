@@ -5,8 +5,9 @@
       {
         "hooks": [{
           "type": "command",
-          "command": "PYTHONPATH=\"${CLAUDE_PLUGIN_ROOT}\" python3 -m voice_buddy",
-          "timeout": 5000,
+          "command": "${CLAUDE_PLUGIN_ROOT}/bin/voice-buddy-hook",
+          "args": [],
+          "timeout": 5,
           "async": true
         }]
       }
@@ -15,8 +16,9 @@
       {
         "hooks": [{
           "type": "command",
-          "command": "PYTHONPATH=\"${CLAUDE_PLUGIN_ROOT}\" python3 -m voice_buddy",
-          "timeout": 5000,
+          "command": "${CLAUDE_PLUGIN_ROOT}/bin/voice-buddy-hook",
+          "args": [],
+          "timeout": 5,
           "async": true
         }]
       }
@@ -25,8 +27,9 @@
       {
         "hooks": [{
           "type": "command",
-          "command": "PYTHONPATH=\"${CLAUDE_PLUGIN_ROOT}\" python3 -m voice_buddy",
-          "timeout": 5000,
+          "command": "${CLAUDE_PLUGIN_ROOT}/bin/voice-buddy-hook",
+          "args": [],
+          "timeout": 5,
           "async": true
         }]
       }
@@ -35,8 +38,9 @@
       {
         "hooks": [{
           "type": "command",
-          "command": "PYTHONPATH=\"${CLAUDE_PLUGIN_ROOT}\" python3 -m voice_buddy",
-          "timeout": 5000,
+          "command": "${CLAUDE_PLUGIN_ROOT}/bin/voice-buddy-hook",
+          "args": [],
+          "timeout": 5,
           "async": false
         }]
       }

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Voice Buddy hook launcher.
+# Invoked by hooks/hooks.json in exec form, so it receives no shell: this
+# wrapper is what sets PYTHONPATH before handing the event JSON on stdin to
+# the Python entry point.
+#
+# CLAUDE_PLUGIN_ROOT is exported by Claude Code for plugin hooks. Falling back
+# to the script's own parent keeps a direct checkout working too.
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$SCRIPT_DIR")}"
+
+PYTHONPATH="$PLUGIN_ROOT" exec python3 -m voice_buddy "$@"

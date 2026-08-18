@@ -41,9 +41,20 @@ Voice Buddy hooks into [Claude Code's hook system](https://docs.anthropic.com/en
 
 #### Prerequisites
 
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — tested against **v2.1.179**
 - Python 3.9+
 - Audio player (macOS: `afplay` built-in, Linux: `paplay`/`aplay`/`mpg123`)
+
+> **Claude Code compatibility.** Voice Buddy ships its skill under
+> `skills/voice-buddy/SKILL.md` and launches its hooks in
+> [exec form](https://code.claude.com/docs/en/hooks) (`command` + `args`)
+> resolved through `${CLAUDE_PLUGIN_ROOT}`. Both are the current plugin
+> contract — the flat `commands/` layout and shell-form hooks that earlier
+> releases used still load, but are no longer the documented default.
+> Exec form and `${CLAUDE_PLUGIN_ROOT}` substitution are verified on v2.1.179;
+> the docs publish no explicit version floor for either, so older releases are
+> untested rather than known-broken. Release validation is
+> `claude plugin validate . --strict`.
 
 #### Install from Plugin Marketplace
 
@@ -348,9 +359,17 @@ Voice Buddy 接入 [Claude Code 的 Hook 系统](https://docs.anthropic.com/en/d
 
 #### 环境要求
 
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — 已在 **v2.1.179** 上验证
 - Python 3.9+
 - 音频播放器（macOS: `afplay` 内置, Linux: `paplay`/`aplay`/`mpg123`）
+
+> **Claude Code 兼容性说明.** Voice Buddy 的 skill 位于
+> `skills/voice-buddy/SKILL.md`，hooks 使用 exec form（`command` + `args`）
+> 并通过 `${CLAUDE_PLUGIN_ROOT}` 解析路径，两者都是当前的 plugin contract。
+> 旧的 `commands/` 扁平布局与 shell-form hooks 仍可加载，但已不是官方默认写法。
+> exec form 与 `${CLAUDE_PLUGIN_ROOT}` 替换已在 v2.1.179 实测通过；官方文档
+> 未给出这两项的最低版本要求，因此更早的版本属于「未测试」而非「已知不可用」。
+> 发布前的校验命令为 `claude plugin validate . --strict`。
 
 #### 从 Plugin Marketplace 安装
 
