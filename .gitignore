@@ -4,6 +4,10 @@
 # OMC (oh-my-claudecode) workspace
 .omc/
 
+# Local Claude Code config. The plugin ships its own hooks and agents; a
+# tracked .claude/ here duplicated them and hardcoded one developer's paths.
+.claude/
+
 # Python
 __pycache__/
 .pytest_cache/

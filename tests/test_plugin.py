@@ -102,8 +102,55 @@ def test_plugin_json_has_user_config():
     assert "title" in nickname
 
 
-def test_slash_command_exists():
-    path = REPO_ROOT / "commands" / "voice-buddy.md"
-    assert path.exists()
+def test_skill_exists():
+    path = REPO_ROOT / "skills" / "voice-buddy" / "SKILL.md"
+    assert path.exists(), "Missing skills/voice-buddy/SKILL.md"
     content = path.read_text()
     assert "voice-buddy config" in content
+
+
+def test_no_legacy_commands_dir():
+    # Migrated to the skills/<name>/SKILL.md layout; keeping both would
+    # register the same slash command twice.
+    assert not (REPO_ROOT / "commands").exists()
+
+
+def test_hook_timeouts_are_seconds():
+    # Claude Code hook `timeout` is in SECONDS. A millisecond value like 5000
+    # would silently mean 83 minutes.
+    data = json.loads((REPO_ROOT / "hooks" / "hooks.json").read_text())
+    for event, groups in data["hooks"].items():
+        for group in groups:
+            for hook in group["hooks"]:
+                assert hook["timeout"] <= 60, (
+                    f"{event} timeout={hook['timeout']} looks like milliseconds"
+                )
+
+
+def test_hooks_use_portable_plugin_root():
+    # No checkout-specific absolute paths: hooks must resolve via the
+    # ${CLAUDE_PLUGIN_ROOT} placeholder so they work from the plugin cache.
+    raw = (REPO_ROOT / "hooks" / "hooks.json").read_text()
+    assert "${CLAUDE_PLUGIN_ROOT}" in raw
+    assert "/Users/" not in raw
+
+
+def test_hook_launcher_exists_and_executable():
+    path = REPO_ROOT / "bin" / "voice-buddy-hook"
+    assert path.exists(), "Missing bin/voice-buddy-hook launcher"
+    import os
+    assert os.access(path, os.X_OK), "bin/voice-buddy-hook is not executable"
+
+
+def test_marketplace_has_description():
+    # `claude plugin validate --strict` fails without it.
+    data = json.loads((REPO_ROOT / ".claude-plugin" / "marketplace.json").read_text())
+    assert data.get("description")
+
+
+def test_no_tracked_machine_specific_claude_config():
+    # A repo-local .claude/ duplicated the plugin's own hooks and agents and
+    # hardcoded one developer's home directory.
+    assert not (REPO_ROOT / ".claude" / "settings.json").exists()
+    assert not (REPO_ROOT / ".claude" / "agents" / "voice-buddy.md").exists()
+

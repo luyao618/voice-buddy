@@ -1,5 +1,6 @@
 {
   "name": "voice-buddy-marketplace",
+  "description": "Marketplace for Voice Buddy — CC, a personality-driven voice companion for Claude Code",
   "owner": { "name": "luyao618" },
   "plugins": [
     {
