@@ -309,8 +309,8 @@ voice-buddy/
 git clone https://github.com/luyao618/voice-buddy.git
 cd voice-buddy
 
-# Editable install with dev extras (pytest, pip-audit)
-pip install -e ".[dev]"
+# Editable install with dev extras, pinned to the verified versions
+pip install -c constraints.txt -e ".[dev]"
 
 # Run tests
 python3 -m pytest tests/ -v
@@ -322,19 +322,47 @@ python3 -m pip_audit
 python3 -m voice_buddy.generate_audio
 ```
 
-`pyproject.toml` is the source of truth for dependencies and the supported
-Python range. `requirements.txt` / `requirements-dev.txt` are kept as
-convenience installers that mirror it.
+#### Dependency files
+
+| File | Role |
+|------|------|
+| `pyproject.toml` | Source of truth. Declares what versions are **allowed** (ranges). |
+| `constraints.txt` | Fully-pinned direct **and** transitive versions — what was actually **verified**. |
+| `requirements.txt` / `requirements-dev.txt` | Convenience installers that mirror `pyproject.toml`. |
+
+Install reproducibly by passing the constraints file:
+
+```bash
+pip install -c constraints.txt .            # runtime only
+pip install -c constraints.txt -e ".[dev]"  # development
+```
+
+Omitting `-c constraints.txt` still works and resolves anything inside the
+declared ranges — use that to pick up newer versions deliberately.
+
+**Updating dependencies:**
+
+1. Edit the range in `pyproject.toml` (and mirror it in `requirements*.txt`).
+2. Run `bash scripts/regen-constraints.sh` to re-resolve and re-pin.
+3. Run the suite and `python3 -m pip_audit`.
+
+`tests/test_packaging.py` fails if the three files disagree — on an extra
+dependency, a differing version range, a dropped environment marker, an
+unpinned constraint, or a pin that falls outside its declared range.
 
 #### Supported Python versions
 
-`3.10` – `3.14`, each verified by installing the current dependency set into a
-fresh virtualenv and running the full suite.
+`3.10` – `3.14`, each verified by installing the constrained dependency set
+into a fresh virtualenv and running the full suite.
 
 **3.9 is not supported.** `pyobjc-core` publishes no 3.9 wheel and its source
 build fails, and `pytest` 9.x / `pip` 26.x both declare `Requires-Python
 >=3.10`. `requires-python = ">=3.10"` makes installers reject 3.9 up front
 rather than failing partway through a build.
+
+The packaging contracts run on every supported version, including the 3.10
+floor: `tomllib` is 3.11+, so the dev extra carries a `tomli` backport for
+3.10 rather than skipping the tests there.
 
 ---
 

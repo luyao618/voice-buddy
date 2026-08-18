@@ -48,6 +48,11 @@ voice-buddy = "voice_buddy.cli:main"
 dev = [
     "pytest>=8,<10",
     "pip-audit>=2.7",
+    # Requirement parsing in tests/test_packaging.py.
+    "packaging>=23",
+    # tomllib is 3.11+; on the 3.10 floor the packaging contracts would
+    # otherwise skip, which is exactly where they matter most.
+    "tomli>=2; python_version < '3.11'",
 ]
 
 [tool.setuptools]

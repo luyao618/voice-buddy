@@ -1,7 +1,10 @@
 # Runtime dependencies.
 #
 # Kept as a convenience installer; it mirrors the [project] dependencies in
-# pyproject.toml, which is the source of truth. Prefer `pip install .`
-# Ranges and the Quartz cap change are justified in pyproject.toml.
+# pyproject.toml, which is the source of truth. Prefer:
+#   pip install -c constraints.txt .
+#
+# Ranges here say what is ALLOWED; constraints.txt records the exact versions
+# that were VERIFIED. tests/test_packaging.py asserts the two agree.
 edge-tts>=7.0,<8
 pyobjc-framework-Quartz>=10.0,<13; sys_platform == "darwin"
