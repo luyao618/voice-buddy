@@ -10,6 +10,7 @@ Every contract in this module runs on the 3.10 floor. tomllib is 3.11+, so the
 dev extra carries a `tomli` fallback rather than skipping these tests on the
 one version they most need to certify.
 """
+import re
 import sys
 from pathlib import Path
 
@@ -28,6 +29,15 @@ SUPPORTED_MINORS = [10, 11, 12, 13, 14]
 def _manifest():
     with open(REPO_ROOT / "pyproject.toml", "rb") as fh:
         return tomllib.load(fh)
+
+
+def _canon(name):
+    """Canonical distribution name: case- and separator-insensitive.
+
+    PyPI treats `pip_audit` and `pip-audit` as the same project, and pip freeze
+    may emit either form, so comparisons normalize both sides.
+    """
+    return re.sub(r"[-_.]+", "-", name).lower()
 
 
 def _parse_requirements(path):
@@ -52,7 +62,7 @@ def _normalize(reqs):
     a dropped environment marker, so each field is compared explicitly.
     """
     return {
-        r.name.lower().replace("_", "-"): (str(r.specifier), str(r.marker or ""))
+        _canon(r.name): (str(r.specifier), str(r.marker or ""))
         for r in reqs
     }
 
@@ -155,15 +165,15 @@ def test_constraints_file_pins_every_verified_dependency():
 def test_constraints_cover_all_direct_dependencies():
     manifest = _manifest()["project"]
     direct = {
-        Requirement(d).name.lower().replace("_", "-")
+        _canon(Requirement(d).name)
         for d in manifest["dependencies"]
     }
     direct |= {
-        Requirement(d).name.lower().replace("_", "-")
+        _canon(Requirement(d).name)
         for d in manifest["optional-dependencies"]["dev"]
     }
     pinned = {
-        r.name.lower().replace("_", "-")
+        _canon(r.name)
         for r in _parse_requirements(REPO_ROOT / "constraints.txt")
     }
     missing = direct - pinned
@@ -176,10 +186,10 @@ def test_constraints_satisfy_declared_ranges():
     declared = {}
     for dep in manifest["dependencies"] + manifest["optional-dependencies"]["dev"]:
         req = Requirement(dep)
-        declared[req.name.lower().replace("_", "-")] = req.specifier
+        declared[_canon(req.name)] = req.specifier
 
     for req in _parse_requirements(REPO_ROOT / "constraints.txt"):
-        name = req.name.lower().replace("_", "-")
+        name = _canon(req.name)
         if name not in declared:
             continue  # transitive pin, no declared range to honor
         version = str(req.specifier).lstrip("=")
@@ -187,3 +197,61 @@ def test_constraints_satisfy_declared_ranges():
             f"constraints.txt pins {name}=={version}, outside declared "
             f"range {declared[name]}"
         )
+
+
+def test_constraints_are_a_closed_dependency_set():
+    """Every pinned package's own requirements must also be pinned.
+
+    The earlier checks only proved that the lines present were exact and that
+    *direct* deps appeared. Deleting a transitive pin such as `yarl` still
+    passed. This walks the closure: for each pinned distribution installed in
+    the current environment, every runtime requirement it declares must itself
+    appear in constraints.txt. That makes "fully pinned" a property the test
+    enforces rather than a claim about how the file was produced.
+
+    Requirements guarded by an extra (`; extra == "socks"`) are optional and
+    only installed on demand, so they are not part of this closure.
+    """
+    import importlib.metadata as md
+
+    pinned = {_canon(r.name) for r in _parse_requirements(REPO_ROOT / "constraints.txt")}
+    assert pinned, "constraints.txt declares no pins"
+
+    # Installer plumbing is deliberately excluded from the artifact.
+    ignored = {"pip", "setuptools", "wheel", "voice-buddy"}
+
+    missing = {}
+    for name in sorted(pinned):
+        try:
+            dist = md.distribution(name)
+        except md.PackageNotFoundError:
+            # Marker-gated pin not installed on this interpreter/platform
+            # (e.g. tomli on 3.11+). Nothing to expand.
+            continue
+        for raw in dist.requires or []:
+            req = Requirement(raw)
+            if req.marker is not None:
+                # Skip extras-only deps; evaluate real environment markers.
+                if "extra" in str(req.marker):
+                    continue
+                if not req.marker.evaluate():
+                    continue
+            dep = _canon(req.name)
+            if dep in ignored or dep in pinned:
+                continue
+            missing.setdefault(dep, []).append(name)
+
+    assert not missing, (
+        "constraints.txt is not a closed set — these dependencies are required "
+        f"by pinned packages but are not themselves pinned: "
+        f"{ {k: sorted(v) for k, v in missing.items()} }"
+    )
+
+
+def test_constraints_are_free_of_installer_plumbing():
+    """pip/setuptools/wheel are the installer, not application dependencies.
+
+    Pinning them here would fight the bootstrap in regen-constraints.sh.
+    """
+    pinned = {_canon(r.name) for r in _parse_requirements(REPO_ROOT / "constraints.txt")}
+    assert not (pinned & {"pip", "setuptools", "wheel"})

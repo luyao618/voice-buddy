@@ -1,17 +1,17 @@
 # Fully-pinned direct and transitive versions for a reproducible install.
 #
-# Generated from a clean resolve of the ranges declared in pyproject.toml
-# on CPython 3.12 / macOS arm64, then verified across Python 3.10-3.14.
-#
-# Use:
-#   pip install -c constraints.txt .          # runtime
-#   pip install -c constraints.txt -e '.[dev]'  # development
-#
-# Regenerate after changing a range in pyproject.toml:
+# GENERATED FILE — do not hand-edit. Regenerate with:
 #   bash scripts/regen-constraints.sh
 #
-# pyproject.toml stays the source of truth for what is ALLOWED; this file
-# records what was actually verified. Tests assert the two agree.
+# pyproject.toml is the source of truth for what is ALLOWED (ranges);
+# this file records what was actually VERIFIED (exact versions).
+#
+# Use:
+#   pip install -c constraints.txt .            # runtime
+#   pip install -c constraints.txt -e '.[dev]'  # development
+#
+# pip/setuptools/wheel are omitted deliberately: they are the installer,
+# not part of the application's dependency closure.
 aiohappyeyeballs==2.7.1
 aiohttp==3.14.3
 aiosignal==1.4.0
