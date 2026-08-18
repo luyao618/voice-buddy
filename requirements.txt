@@ -1,2 +1,7 @@
-edge-tts
-pyobjc-framework-Quartz>=10.0,<12.0; sys_platform == "darwin"
+# Runtime dependencies.
+#
+# Kept as a convenience installer; it mirrors the [project] dependencies in
+# pyproject.toml, which is the source of truth. Prefer `pip install .`
+# Ranges and the Quartz cap change are justified in pyproject.toml.
+edge-tts>=7.0,<8
+pyobjc-framework-Quartz>=10.0,<13; sys_platform == "darwin"

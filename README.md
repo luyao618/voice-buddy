@@ -42,7 +42,7 @@ Voice Buddy hooks into [Claude Code's hook system](https://docs.anthropic.com/en
 #### Prerequisites
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — tested against **v2.1.179**
-- Python 3.9+
+- Python 3.10 – 3.14 (3.9 is not supported; see Development below)
 - Audio player (macOS: `afplay` built-in, Linux: `paplay`/`aplay`/`mpg123`)
 
 > **Claude Code compatibility.** Voice Buddy ships its skill under
@@ -136,7 +136,7 @@ The marketplace installer copies plugin files but does **not** install Python de
 ##### Step 1 — Install the macOS dependency
 
 ```bash
-pip3 install 'pyobjc-framework-Quartz>=10.0,<12.0'
+pip3 install 'pyobjc-framework-Quartz>=10.0,<13'
 ```
 
 If you have multiple Python interpreters (system, Homebrew, pyenv, conda, depot_tools), make sure to install into the **same one** that runs `voice-buddy`. To find out which one:
@@ -149,7 +149,7 @@ voice-buddy hotkey-doctor --non-interactive
 Install pyobjc into that exact interpreter:
 
 ```bash
-/path/to/python3 -m pip install 'pyobjc-framework-Quartz>=10.0,<12.0'
+/path/to/python3 -m pip install 'pyobjc-framework-Quartz>=10.0,<13'
 ```
 
 ##### Step 2 — Enable "Use F1, F2, etc. as standard function keys"
@@ -308,15 +308,33 @@ voice-buddy/
 ```bash
 git clone https://github.com/luyao618/voice-buddy.git
 cd voice-buddy
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
+
+# Editable install with dev extras (pytest, pip-audit)
+pip install -e ".[dev]"
 
 # Run tests
 python3 -m pytest tests/ -v
 
+# Dependency advisory check
+python3 -m pip_audit
+
 # Regenerate pre-packaged audio (after editing templates)
 python3 -m voice_buddy.generate_audio
 ```
+
+`pyproject.toml` is the source of truth for dependencies and the supported
+Python range. `requirements.txt` / `requirements-dev.txt` are kept as
+convenience installers that mirror it.
+
+#### Supported Python versions
+
+`3.10` – `3.14`, each verified by installing the current dependency set into a
+fresh virtualenv and running the full suite.
+
+**3.9 is not supported.** `pyobjc-core` publishes no 3.9 wheel and its source
+build fails, and `pytest` 9.x / `pip` 26.x both declare `Requires-Python
+>=3.10`. `requires-python = ">=3.10"` makes installers reject 3.9 up front
+rather than failing partway through a build.
 
 ---
 
@@ -360,7 +378,7 @@ Voice Buddy 接入 [Claude Code 的 Hook 系统](https://docs.anthropic.com/en/d
 #### 环境要求
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — 已在 **v2.1.179** 上验证
-- Python 3.9+
+- Python 3.10 – 3.14（不支持 3.9，原因见下方 Development 小节）
 - 音频播放器（macOS: `afplay` 内置, Linux: `paplay`/`aplay`/`mpg123`）
 
 > **Claude Code 兼容性说明.** Voice Buddy 的 skill 位于
@@ -451,7 +469,7 @@ Marketplace 安装器只会复制插件文件，**不会**安装 Python 依赖�
 ##### 第 ① 步 — 安装 macOS 依赖
 
 ```bash
-pip3 install 'pyobjc-framework-Quartz>=10.0,<12.0'
+pip3 install 'pyobjc-framework-Quartz>=10.0,<13'
 ```
 
 如果你电脑上有多个 Python 解释器（系统自带 / Homebrew / pyenv / conda / depot_tools 等），**必须装到运行 `voice-buddy` 的那一个**里。先用 doctor 查出来：
@@ -464,7 +482,7 @@ voice-buddy hotkey-doctor --non-interactive
 然后用那个路径直接装：
 
 ```bash
-/path/to/python3 -m pip install 'pyobjc-framework-Quartz>=10.0,<12.0'
+/path/to/python3 -m pip install 'pyobjc-framework-Quartz>=10.0,<13'
 ```
 
 ##### 第 ② 步 — 把 F1/F2 设成标准功能键
