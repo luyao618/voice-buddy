@@ -344,11 +344,18 @@ declared ranges — use that to pick up newer versions deliberately.
 
 1. Edit the range in `pyproject.toml` (and mirror it in `requirements*.txt`).
 2. Run `bash scripts/regen-constraints.sh` to re-resolve and re-pin.
+   It needs only CPython's bundled `venv`/`ensurepip` — no `uv`, no
+   preinstalled pip. On macOS, `/usr/bin/python3` is still 3.9 and is
+   rejected, so pass a supported interpreter:
+   `PYTHON=python3.12 bash scripts/regen-constraints.sh`.
+   A failed resolve exits non-zero and leaves `constraints.txt` untouched.
 3. Run the suite and `python3 -m pip_audit`.
 
 `tests/test_packaging.py` fails if the three files disagree — on an extra
 dependency, a differing version range, a dropped environment marker, an
-unpinned constraint, or a pin that falls outside its declared range.
+unpinned constraint, or a pin that falls outside its declared range. It also
+walks the dependency closure, so removing any transitive pin from
+`constraints.txt` fails the suite rather than silently weakening the lock.
 
 #### Supported Python versions
 
