@@ -51,8 +51,14 @@ jobs:
       - name: Install with the verified pins
         # -c constraints.txt is the point: it proves the committed lock
         # actually installs, on every version we claim to support.
+        #
+        # setuptools is upgraded because the runner image ships a version
+        # carrying PYSEC-2026-3447, which the blocking advisory gate reports.
+        # It is installer plumbing, not a dependency of ours, so it is not in
+        # constraints.txt — but it is present in the environment pip-audit
+        # scans, so it has to be current.
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip 'setuptools>=83' wheel
           python -m pip install -c constraints.txt -e ".[dev]"
 
       - name: Show resolved versions
