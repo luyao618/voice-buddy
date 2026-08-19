@@ -110,10 +110,34 @@ supported Claude Code baseline. Full steps: `docs/manual-tests.md`.
 
 | Job | Checks |
 |-----|--------|
-| `test` | Full suite on 3.10–3.14 (macOS) plus 3.10/3.14 on Linux and Windows, installed against `constraints.txt`; `pip-audit` advisory scan |
+| `test` | Full suite on 3.10–3.14 (macOS) plus 3.10 and 3.14 on Linux, installed against `constraints.txt`; blocking `pip-audit` advisory scan |
 | `plugin-validation` | Both manifests with `--strict`, individually; component inventory and hook-timeout units |
-| `packaging` | Wheel and sdist build; artifacts free of caches and local paths; clean-env install; hooks exit 0 with pyobjc absent |
+| `packaging` | Wheel and sdist build; **artifact contents** unpacked and scanned for credentials and developer paths; clean-env install; hooks exit 0 with pyobjc absent |
 | `install-from-source` | Constrained install on the 3.10 floor; `constraints.txt` closure |
+
+**Platform coverage, precisely.** macOS runs the full Python range; Linux runs
+the endpoints. **There is no Windows runner.** `win32` appears only as a
+*simulated* platform inside
+`test_supervisor_is_a_no_op_off_darwin`, which asserts the supervisor is a
+clean no-op — that is a contract test, not install or runtime coverage. 32 of
+the existing tests assume POSIX primitives (`ps`, `flock`, `/`-separated
+paths), so a Windows runner reports failures without finding real defects.
+Windows is documented as best-effort in the README and must not be described
+as verified.
 
 What CI cannot cover, and why: macOS Accessibility permission, a real F2
 keypress, and audible playback. Those stay in `docs/manual-tests.md`.
+
+## Dependency advisory exceptions
+
+`pip-audit` is **blocking**. If a known vulnerability appears:
+
+1. Preferred — bump the dependency and regenerate `constraints.txt` on the
+   floor interpreter.
+2. If the fix cannot be taken yet, add the advisory id to `.pip-audit-ignore`
+   with the rationale, the reviewer, and the condition for removing it. The
+   file's header states the required format; entries without a justification
+   should not pass review.
+
+Nothing is waived silently — an empty `.pip-audit-ignore` means the gate is
+running at full strength.

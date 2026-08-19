@@ -11,6 +11,7 @@ verbatim: anything tracked here lands on every user's disk.
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -148,6 +149,125 @@ def test_release_checklist_exists_and_names_the_manual_steps():
     for required in ("plugin validate", "regen-constraints.sh",
                      "manual-tests.md", "uninstall"):
         assert required in text, f"release checklist does not mention {required}"
+
+
+# --- The gate must actually gate ---------------------------------------------
+
+def _workflow():
+    return (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text()
+
+
+def test_advisory_scan_is_blocking():
+    """A release gate that reports a CVE and goes green is not a gate.
+
+    `pip-audit` ran with `continue-on-error: true`, so any known vulnerability
+    passed CI while the checklist claimed "no known vulnerabilities".
+    """
+    workflow = _workflow()
+    assert "continue-on-error" not in workflow, (
+        "a CI step is non-blocking; the release gate must fail on findings"
+    )
+    assert "pip_audit" in workflow, "the advisory scan is missing from CI"
+
+
+def test_advisory_exceptions_are_explicit_and_documented():
+    """Waivers must be auditable, never silent."""
+    path = REPO_ROOT / ".pip-audit-ignore"
+    assert path.exists(), ".pip-audit-ignore is missing; exceptions have no home"
+    text = path.read_text()
+    for required in ("reviewed", "GHSA", "Remove when"):
+        assert required.lower() in text.lower(), (
+            f"the exception file does not explain {required}"
+        )
+    # Every non-comment line must look like an advisory id.
+    for line in text.splitlines():
+        entry = line.strip()
+        if not entry or entry.startswith("#"):
+            continue
+        assert re.match(r"^(GHSA-[\w-]+|PYSEC-\d{4}-\d+)$", entry), (
+            f"unrecognized exception entry: {entry!r}"
+        )
+
+
+def test_checklist_platform_claims_match_the_workflow():
+    """The checklist claimed Linux *and Windows* runners; there is no Windows job.
+
+    README's "Windows is best-effort" was honest while the checklist — the
+    document a releaser trusts as evidence — asserted coverage that never ran.
+    """
+    workflow = _workflow()
+    checklist = (REPO_ROOT / "docs" / "RELEASE_CHECKLIST.md").read_text()
+
+    runs_windows = "windows-latest" in workflow
+    if not runs_windows:
+        # The checklist must not present Windows as executed coverage.
+        table_row = next(
+            (ln for ln in checklist.splitlines()
+             if ln.startswith("| `test`")), "")
+        assert "Windows" not in table_row, (
+            "the checklist's CI table claims Windows coverage, but no Windows "
+            "runner exists in the workflow"
+        )
+        assert "no Windows runner" in checklist, (
+            "the checklist must state plainly that Windows is not run in CI"
+        )
+        assert "simulated" in checklist, (
+            "the checklist must say win32 is only a simulated no-op contract"
+        )
+
+
+def test_ci_scans_artifact_contents_not_just_member_names():
+    """Member names alone let embedded credentials ship.
+
+    Demonstrated: an AWS key, a GitHub token and `/Users/alice/...` were all
+    injected into `voice_buddy/config.py`, reached both the wheel and the
+    sdist, and the name-only check still reported clean.
+    """
+    workflow = _workflow()
+    assert "scripts/scan_artifacts.py" in workflow, (
+        "the packaging job does not run the artifact content scanner"
+    )
+
+
+def test_artifact_scanner_flags_credentials_and_foreign_home_paths():
+    """The scanner's own contract, exercised directly."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import scan_artifacts
+
+    cases = [
+        ('AWS_KEY = "AKIAJKLMNOPQRSTUVWXY"', "aws-access-key"),
+        ('T = "ghp_' + "a" * 36 + '"', "github-token"),
+        ('K = "sk-' + "b" * 40 + '"', "openai-key"),
+        ("-----BEGIN RSA PRIVATE KEY-----", "private-key-block"),
+        ('api_key = "' + "c" * 24 + '"', "assigned-secret"),
+        ("path = /Users/alice/work/thing", "developer-home-path"),
+        ("path = /home/bob/src", "developer-home-path"),
+    ]
+    for text, expected in cases:
+        findings = scan_artifacts.scan_text("f.py", text)
+        assert any(expected in f for f in findings), (
+            f"scanner missed {expected} in {text!r}"
+        )
+
+
+def test_artifact_scanner_allows_declared_synthetic_fixtures():
+    """The fixtures that prove secrets don't leak must not trip the scanner.
+
+    Otherwise the only way to a green gate is deleting the tests that protect
+    the thing the gate exists for.
+    """
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import scan_artifacts
+
+    for text in [
+        '"/Users/victim/.claude/projects/LEAKED.jsonl"',
+        '"transcript_path": "/Users/u/.claude/projects/p/session.jsonl"',
+        'os.environ["APPDATA"] = "C:\\\\Users\\\\test\\\\AppData"',
+        '"my aws key is AKIAIOSFODNN7EXAMPLE"',
+    ]:
+        assert scan_artifacts.scan_text("t.py", text) == [], (
+            f"scanner flagged a declared synthetic fixture: {text!r}"
+        )
 
     """A stale pin here sends users back to the version we moved off."""
     try:

@@ -1,0 +1,22 @@
+# Reviewed dependency-advisory exceptions.
+#
+# The `pip-audit` step in CI is blocking: a known vulnerability fails the
+# release gate. This file is the only way to proceed without fixing one, and
+# every entry is a deliberate, auditable decision — not a silent waiver.
+#
+# Format: one advisory id per line (`GHSA-xxxx-xxxx-xxxx` or `PYSEC-YYYY-NNN`).
+# Blank lines and `#` comments are ignored.
+#
+# Every entry MUST record, in the comment above it:
+#   - why the vulnerability does not affect Voice Buddy, or why the fix cannot
+#     be taken yet
+#   - who reviewed it and when
+#   - the condition under which the exception should be removed
+#
+# Example:
+#   # GHSA-xxxx-xxxx-xxxx — aiohttp server-side request parsing. Voice Buddy
+#   # only uses aiohttp as an edge-tts client and never serves requests.
+#   # Reviewed: <name>, 2026-08-19. Remove when edge-tts allows aiohttp >= X.
+#   GHSA-xxxx-xxxx-xxxx
+#
+# There are currently no exceptions. `pip-audit` reports clean.

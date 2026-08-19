@@ -68,10 +68,26 @@ jobs:
           python -m pytest tests/ -v
 
       - name: Dependency advisory check
-        run: python -m pip_audit --progress-spinner off
-        # Advisory data changes without our code changing; a new CVE should
-        # report, not block an unrelated pull request.
-        continue-on-error: true
+        # Blocking. This is the release gate, and the checklist requires "no
+        # known vulnerabilities" — a job that reports a CVE and still goes
+        # green cannot enforce that.
+        #
+        # Advisory data does change without our code changing, so a fresh CVE
+        # can fail an unrelated PR. That is the intended trade: the fix is to
+        # bump the dependency, or to record a reviewed exception in
+        # `.pip-audit-ignore` with a rationale. Nothing is waived silently.
+        run: |
+          set -euo pipefail
+          if [ -s .pip-audit-ignore ]; then
+            # One `GHSA-...`/`PYSEC-...` id per line; `#` comments ignored.
+            IGNORES=$(grep -vE '^\s*(#|$)' .pip-audit-ignore \
+                      | sed 's/^/--ignore-vuln /' | tr '\n' ' ')
+            echo "Applying reviewed exceptions: $IGNORES"
+            # shellcheck disable=SC2086
+            python -m pip_audit --progress-spinner off $IGNORES
+          else
+            python -m pip_audit --progress-spinner off
+          fi
 
   plugin-validation:
     name: plugin manifests
@@ -130,12 +146,16 @@ jobs:
           python -m pip install --upgrade pip build
           python -m build
 
-      - name: Artifacts carry no local paths or caches
+      - name: Artifacts carry no caches, local paths, or credentials
+        # Unpacks each archive and scans the *contents*. Checking member names
+        # alone let a secret embedded in a shipped source file through: an AWS
+        # key, a GitHub token and a foreign developer's home path all reached
+        # the wheel while the old check reported "clean".
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
-          import pathlib, re, tarfile, zipfile, sys
+          import pathlib, re, sys, tarfile, zipfile
 
           bad = []
           for path in pathlib.Path("dist").iterdir():
@@ -149,8 +169,9 @@ jobs:
           if bad:
               sys.exit("build artifacts contain caches or vendored dirs:\n" +
                        "\n".join(bad))
-          print("artifact contents clean")
+          print("artifact member names clean")
           PY
+          python scripts/scan_artifacts.py dist
 
       - name: Install the wheel into a clean environment
         shell: bash
