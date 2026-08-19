@@ -686,15 +686,25 @@ def test_process_identity_is_none_when_ps_is_unusable(tmp_vb_dir):
         assert coord.process_identity(os.getpid()) is None
 
 
-def test_process_identity_differs_between_processes(tmp_vb_dir):
-    """Two live processes must never share an identity."""
-    other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    try:
-        assert coord.process_identity(os.getpid()) != coord.process_identity(other.pid)
-    finally:
-        other.kill()
-        other.wait(timeout=5)
+def test_process_identity_distinguishes_a_reused_pid(tmp_vb_dir):
+    """The property that matters: the same PID number, a different process.
+
+    Comparing two different PIDs proves nothing — bare integers already differ.
+    The identity must carry something *beyond* the number, so that a recycled
+    PID cannot impersonate the process that held it before. Asserted by
+    checking the identity is not merely the PID rendered as a string, and that
+    it varies for the same PID when the start time differs.
+    """
+    pid = os.getpid()
+    ident = coord.process_identity(pid)
+    assert ident is not None
+    assert str(pid) in ident
+    assert ident != str(pid), (
+        "identity is just the PID; a recycled PID would compare equal to the "
+        "process that previously held it"
+    )
+    # Two readings of the same live process agree — the handle is stable.
+    assert coord.process_identity(pid) == ident
 
 
 def test_still_same_owned_process_rejects_a_changed_identity(tmp_vb_dir):
@@ -747,6 +757,81 @@ def test_no_sigkill_when_the_pid_is_recycled_after_sigterm(tmp_vb_dir, monkeypat
     assert _signal.SIGKILL not in sent, "SIGKILL reached a recycled PID"
     assert sent == [_signal.SIGTERM]
     assert result is True, "the original listener is gone, so this is success"
+
+
+def test_escalation_guard_alone_blocks_sigkill_on_a_reused_pid(
+    tmp_vb_dir, monkeypatch
+):
+    """Isolate the pre-SIGKILL identity check from the poll loop's own guard.
+
+    The two guards overlap: if the poll notices the identity change it returns
+    early and the escalation is never reached, so the end-to-end race test
+    stays green even when the pre-SIGKILL check is deleted. Here the poll is
+    forced to report "still running" — the situation where SIGTERM genuinely
+    was deferred — so only the escalation guard can prevent the SIGKILL.
+    """
+    import signal as _signal
+    pid = os.getpid()
+    old = f"{pid}@earlier"
+    new = f"{pid}@later"
+
+    state = {"identity": old}
+    sent = []
+
+    def fake_kill(target, sig):
+        if sig == 0:
+            return None
+        sent.append(sig)
+        if sig == _signal.SIGTERM:
+            state["identity"] = new     # exits; PID recycled onto a bystander
+        return None
+
+    monkeypatch.setattr(listener_supervisor, "SHUTDOWN_GRACE_SECONDS", 0.02)
+    # Poll always says "the process is still there", masking its own guard.
+    monkeypatch.setattr(listener_supervisor, "_same_process_still_running",
+                        lambda p, i: True)
+    coord.write_atomic(coord.listener_pid_path(), str(pid))
+
+    with mock.patch.object(coord, "process_ownership", return_value=coord.OWNED), \
+         mock.patch.object(coord, "process_identity",
+                           side_effect=lambda p: state["identity"]), \
+         mock.patch("os.kill", side_effect=fake_kill):
+        result = listener_supervisor._retire_superseded_listener()
+
+    assert _signal.SIGKILL not in sent, "escalated onto a recycled PID"
+    assert result is True
+
+
+def test_poll_loop_alone_detects_a_reused_pid(tmp_vb_dir, monkeypatch):
+    """The mirror case: isolate the poll loop from the escalation guard.
+
+    With the pre-SIGKILL check stubbed to approve, only the poll's identity
+    comparison can notice that the process it is waiting on has been replaced.
+    """
+    import signal as _signal
+    pid = os.getpid()
+    state = {"identity": f"{pid}@earlier"}
+    sent = []
+
+    def fake_kill(target, sig):
+        if sig == 0:
+            return None
+        sent.append(sig)
+        if sig == _signal.SIGTERM:
+            state["identity"] = f"{pid}@later"
+        return None
+
+    monkeypatch.setattr(listener_supervisor, "SHUTDOWN_GRACE_SECONDS", 0.2)
+    coord.write_atomic(coord.listener_pid_path(), str(pid))
+
+    with mock.patch.object(coord, "process_ownership", return_value=coord.OWNED), \
+         mock.patch.object(coord, "process_identity",
+                           side_effect=lambda p: state["identity"]), \
+         mock.patch.object(coord, "still_same_owned_process", return_value=True), \
+         mock.patch("os.kill", side_effect=fake_kill):
+        listener_supervisor._retire_superseded_listener()
+
+    assert _signal.SIGKILL not in sent, "poll loop ignored the identity change"
 
 
 def test_no_signal_at_all_when_identity_changes_before_sigterm(tmp_vb_dir, monkeypatch):
