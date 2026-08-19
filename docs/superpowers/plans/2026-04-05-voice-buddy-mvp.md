@@ -202,7 +202,7 @@ def load_templates() -> dict:
 
 - [ ] **Step 9: Run test to verify it passes**
 
-Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && python -m pytest tests/test_config.py -v`
+Run: `cd <repo> && python -m pytest tests/test_config.py -v`
 Expected: 4 tests PASS
 
 - [ ] **Step 10: Commit**
@@ -417,7 +417,7 @@ def test_stop_returns_none():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && python -m pytest tests/test_context.py -v`
+Run: `cd <repo> && python -m pytest tests/test_context.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'voice_buddy.context'`
 
 - [ ] **Step 3: Implement context.py**
@@ -588,7 +588,7 @@ def _analyze_posttoolusefailure(data: dict) -> Optional[ContextResult]:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && python -m pytest tests/test_context.py -v`
+Run: `cd <repo> && python -m pytest tests/test_context.py -v`
 Expected: All tests PASS
 
 - [ ] **Step 5: Commit**
@@ -670,7 +670,7 @@ def test_select_response_posttoolusefailure_default():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && python -m pytest tests/test_response.py -v`
+Run: `cd <repo> && python -m pytest tests/test_response.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'voice_buddy.response'`
 
 - [ ] **Step 3: Implement response.py**
@@ -715,7 +715,7 @@ def select_response(ctx: ContextResult) -> Optional[str]:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && python -m pytest tests/test_response.py -v`
+Run: `cd <repo> && python -m pytest tests/test_response.py -v`
 Expected: All tests PASS
 
 - [ ] **Step 5: Commit**
@@ -848,7 +848,7 @@ git commit -m "feat: add cross-platform audio player"
 
 - [ ] **Step 1: Install dependencies**
 
-Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && pip install edge-tts`
+Run: `cd <repo> && pip install edge-tts`
 
 - [ ] **Step 2: Implement tts.py**
 
@@ -1036,7 +1036,7 @@ def test_handle_tts_failure_does_not_crash():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && python -m pytest tests/test_main.py -v`
+Run: `cd <repo> && python -m pytest tests/test_main.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'voice_buddy.main'`
 
 - [ ] **Step 3: Implement main.py**
@@ -1121,7 +1121,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && python -m pytest tests/test_main.py -v`
+Run: `cd <repo> && python -m pytest tests/test_main.py -v`
 Expected: All tests PASS
 
 - [ ] **Step 6: Commit**
@@ -1265,7 +1265,7 @@ def test_process_stop_event_missing_transcript(capsys):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && python -m pytest tests/test_injector.py -v`
+Run: `cd <repo> && python -m pytest tests/test_injector.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'voice_buddy.injector'`
 
 - [ ] **Step 3: Implement injector.py**
@@ -1370,7 +1370,7 @@ def process_stop_event(data: dict) -> None:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && python -m pytest tests/test_injector.py -v`
+Run: `cd <repo> && python -m pytest tests/test_injector.py -v`
 Expected: All tests PASS
 
 - [ ] **Step 5: Commit**
@@ -1706,7 +1706,7 @@ def test_uninstall_removes_agent_file(tmp_path):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && python -m pytest tests/test_cli.py -v`
+Run: `cd <repo> && python -m pytest tests/test_cli.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'voice_buddy.cli'`
 
 - [ ] **Step 3: Implement cli.py**
@@ -1976,7 +1976,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && python -m pytest tests/test_cli.py -v`
+Run: `cd <repo> && python -m pytest tests/test_cli.py -v`
 Expected: All tests PASS
 
 - [ ] **Step 5: Commit**
@@ -1994,36 +1994,36 @@ git commit -m "feat: add CLI with setup, uninstall, and test commands"
 
 - [ ] **Step 1: Run all unit tests**
 
-Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && python -m pytest tests/ -v`
+Run: `cd <repo> && python -m pytest tests/ -v`
 Expected: All tests PASS
 
 - [ ] **Step 2: Test voice output with edge-tts**
 
-Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && python -c "from voice_buddy.tts import synthesize_to_file; from voice_buddy.player import play_audio; p = synthesize_to_file('欢迎回来，哦尼酱！'); print(f'Audio: {p}'); play_audio(p) if p else print('TTS failed')"` 
+Run: `cd <repo> && python -c "from voice_buddy.tts import synthesize_to_file; from voice_buddy.player import play_audio; p = synthesize_to_file('欢迎回来，哦尼酱！'); print(f'Audio: {p}'); play_audio(p) if p else print('TTS failed')"` 
 
 Expected: Hear "欢迎回来，哦尼酱！" spoken in Chinese female voice.
 
 - [ ] **Step 3: Test CLI event simulation**
 
-Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && python -m voice_buddy.cli test sessionstart`
+Run: `cd <repo> && python -m voice_buddy.cli test sessionstart`
 Expected: Hear a session greeting spoken aloud.
 
-Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && python -m voice_buddy.cli test posttooluse`
+Run: `cd <repo> && python -m voice_buddy.cli test posttooluse`
 Expected: Hear a test-passed celebration spoken aloud.
 
-Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && python -m voice_buddy.cli test posttoolusefailure`
+Run: `cd <repo> && python -m voice_buddy.cli test posttoolusefailure`
 Expected: Hear an error comfort message spoken aloud.
 
 - [ ] **Step 3b: Test Stop event injector path**
 
-Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && python -m voice_buddy.cli test stop`
+Run: `cd <repo> && python -m voice_buddy.cli test stop`
 Expected: Should print `Testing event: Stop` followed by additionalContext JSON output containing "voice-buddy agent" prompt. No audio plays (subagent chain is not simulated).
 
 - [ ] **Step 3c: Test subagent_tts.py end-to-end (simulated SubagentStop)**
 
 Run:
 ```bash
-cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy
+cd <repo>
 
 # Create a mock subagent transcript
 echo '{"role": "assistant", "content": "哦尼酱好厉害，bug 修好了呢！"}' > /tmp/vb-mock-agent-transcript.jsonl
@@ -2039,7 +2039,7 @@ Expected: Hear "哦尼酱好厉害，bug 修好了呢！" spoken aloud. This val
 
 Run:
 ```bash
-cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy
+cd <repo>
 echo '{"hook_event_name": "SubagentStop", "transcript_path": "/tmp/parent.jsonl"}' | python -m voice_buddy.subagent_tts
 echo "Exit code: $?"
 ```
@@ -2050,7 +2050,7 @@ Expected: Silent exit, exit code 0. No audio, no errors.
 Run:
 ```bash
 # All commands run from the Voice Buddy repo directory
-cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy
+cd <repo>
 mkdir -p /tmp/vb-test-project/.claude
 python -m voice_buddy.cli setup --project /tmp/vb-test-project
 cat /tmp/vb-test-project/.claude/settings.json
@@ -2138,7 +2138,7 @@ MIT
 
 - [ ] **Step 2: Run all tests one final time**
 
-Run: `cd /Users/yao/work/code/personal/Claude-Code-Voice-Buddy && python -m pytest tests/ -v`
+Run: `cd <repo> && python -m pytest tests/ -v`
 Expected: All tests PASS
 
 - [ ] **Step 3: Commit**

@@ -68,6 +68,38 @@ During installation you'll be prompted to choose a **style** and **nickname**. P
 
 Hooks are auto-registered on install — no manual setup needed.
 
+#### Upgrade
+
+```bash
+/plugin marketplace update voice-buddy-marketplace   # refresh the source
+/plugin update voice-buddy@voice-buddy-marketplace   # apply the new version
+```
+
+Restart Claude Code afterwards. A listener left over from the previous version
+is terminated and replaced, so exactly one stays running.
+
+> Use the fully-qualified `voice-buddy@voice-buddy-marketplace`. The bare name
+> reports `Plugin "voice-buddy" not found`.
+
+#### Uninstall
+
+```bash
+/plugin uninstall voice-buddy
+```
+
+Your settings are **kept** on purpose, so reinstalling restores your style and
+nickname. To remove them as well:
+
+```bash
+# macOS
+rm -rf ~/Library/Application\ Support/voice-buddy
+# Linux
+rm -rf ~/.config/voice-buddy
+```
+
+That directory holds `config.json`, the debug log, and the hotkey listener's
+runtime state — nothing else on your system is touched.
+
 #### Recommended: Add Permission Allowlist
 
 Add the following rules to the `allow` list in `.claude/settings.json` to skip permission prompts for voice playback:
@@ -304,7 +336,7 @@ voice-buddy/
 │   ├── subagent_tts.py      # Agent TTS entry point
 │   ├── generate_audio.py    # Dev utility: generate MP3 assets
 │   └── cli.py               # CLI commands
-└── tests/                   # 86 tests
+└── tests/                   # unit + contract + release-gate suites
 ```
 
 ### Development
@@ -456,6 +488,35 @@ Voice Buddy 接入 [Claude Code 的 Hook 系统](https://docs.anthropic.com/en/d
 安装时会提示选择**风格**和**称呼**，也可以直接回车使用默认值（cute-girl / Master）。
 
 安装完成后 Hook 自动注册，无需手动配置。
+
+#### 升级
+
+```bash
+/plugin marketplace update voice-buddy-marketplace   # 刷新插件源
+/plugin update voice-buddy@voice-buddy-marketplace   # 应用新版本
+```
+
+之后重启 Claude Code。旧版本遗留的监听器会被终止并替换，保证同时只有一个在跑。
+
+> 必须用完整的 `voice-buddy@voice-buddy-marketplace`。只写插件名会报
+> `Plugin "voice-buddy" not found`。
+
+#### 卸载
+
+```bash
+/plugin uninstall voice-buddy
+```
+
+配置会**特意保留**，重新安装即可恢复你的风格与称呼。如果想一并删除：
+
+```bash
+# macOS
+rm -rf ~/Library/Application\ Support/voice-buddy
+# Linux
+rm -rf ~/.config/voice-buddy
+```
+
+该目录只存放 `config.json`、调试日志和快捷键监听器的运行时状态，不会影响系统其他部分。
 
 #### 推荐：添加权限白名单
 

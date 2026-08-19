@@ -37,3 +37,10 @@ Thumbs.db
 *.mp3
 !tests/**/*.mp3
 !assets/audio/**/*.mp3
+
+# Scratch state from local verification scripts (isolated HOMEs, probes)
+.*_home/
+.probe_cfg/
+.nqs/
+dltest*/
+.bak_*
