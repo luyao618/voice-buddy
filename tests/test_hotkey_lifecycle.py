@@ -484,19 +484,42 @@ def test_superseded_listener_is_terminated_before_the_replacement_spawns(
 
 
 def test_retire_waits_for_the_old_listener_to_actually_exit(tmp_vb_dir, monkeypatch):
-    """Returning before the process dies would overlap two EventTaps."""
-    old = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"],
+    """Returning before the process dies would overlap two EventTaps.
+
+    The child delays its exit after SIGTERM, so a `_retire_superseded_listener`
+    that returned immediately would be observably wrong: without the wait loop
+    the process is still alive at the moment the function returns. A child that
+    dies instantly cannot distinguish the two implementations.
+    """
+    # Catch SIGTERM, stay alive briefly, then exit — like a listener tearing
+    # down its EventTap.
+    slow_exit = (
+        "import signal, sys, time\n"
+        "def bye(sig, frm):\n"
+        "    time.sleep(0.4)\n"
+        "    sys.exit(0)\n"
+        "signal.signal(signal.SIGTERM, bye)\n"
+        "time.sleep(60)\n"
+    )
+    old = subprocess.Popen([sys.executable, "-c", slow_exit],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
+        # Let the handler install before signalling.
+        time.sleep(0.3)
         coord.write_atomic(coord.listener_pid_path(), str(old.pid))
         monkeypatch.setattr(coord, "process_ownership", lambda pid: coord.OWNED)
+
+        started = time.monotonic()
         assert listener_supervisor._retire_superseded_listener() is True
-        # Already reaped by the time we return.
+        elapsed = time.monotonic() - started
+
+        # It really waited, and the process is gone on return.
+        assert elapsed >= 0.3, f"returned after only {elapsed:.3f}s — did not wait"
         assert not coord._process_alive(old.pid)
     finally:
         if old.poll() is None:
             old.kill()
-            old.wait(timeout=5)
+        old.wait(timeout=5)
 
 
 def test_no_replacement_spawns_when_the_old_listener_will_not_die(
