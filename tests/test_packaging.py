@@ -255,3 +255,39 @@ def test_constraints_are_free_of_installer_plumbing():
     """
     pinned = {_canon(r.name) for r in _parse_requirements(REPO_ROOT / "constraints.txt")}
     assert not (pinned & {"pip", "setuptools", "wheel"})
+
+
+def test_regen_script_targets_the_declared_floor():
+    """The generator must resolve on the floor, not merely on a supported version.
+
+    aiohttp and pytest gate transitives behind `python_version < "3.11"`. A
+    resolve on a newer interpreter drops them, producing constraints that
+    install everywhere except the floor — the one version they certify. The
+    script hardcodes FLOOR_MINOR, so it can drift from requires-python; this
+    ties the two together.
+    """
+    script = (REPO_ROOT / "scripts" / "regen-constraints.sh").read_text()
+    match = re.search(r"^FLOOR_MINOR=(\d+)$", script, re.MULTILINE)
+    assert match, "regen-constraints.sh no longer declares FLOOR_MINOR"
+    assert int(match.group(1)) == min(SUPPORTED_MINORS)
+
+    floor = _manifest()["project"]["requires-python"]
+    assert floor == f">=3.{match.group(1)}"
+
+
+def test_floor_gated_transitives_are_pinned():
+    """Guards the exact regression that shipped: a closure frozen off-floor.
+
+    These two are required only on 3.10 (`python_version < "3.11"`). They are
+    absent from a resolve performed on 3.11+, and their absence is invisible on
+    every interpreter except the floor. Asserting them by name means the gap is
+    caught by any run of the suite, not only a run that happens to be on 3.10.
+    """
+    pinned = {_canon(r.name) for r in _parse_requirements(REPO_ROOT / "constraints.txt")}
+    for name in ("async-timeout", "exceptiongroup", "tomli"):
+        assert name in pinned, (
+            f"{name} is required on the 3.{min(SUPPORTED_MINORS)} floor but is "
+            f"not pinned — constraints.txt was likely regenerated on a newer "
+            f"interpreter. Re-run: PYTHON=python3.{min(SUPPORTED_MINORS)} "
+            f"bash scripts/regen-constraints.sh"
+        )

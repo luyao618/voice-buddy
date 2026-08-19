@@ -5,14 +5,26 @@
 #
 # Uses only the interpreter's own stdlib `venv` + the pip it bootstraps, so it
 # runs on a fresh clone with no extra tooling. Set PYTHON=... or pass an
-# interpreter as $1 to pick one; defaults to python3.
+# interpreter as $1 to pick one; defaults to the floor interpreter.
+#
+# MUST run on the floor (3.10). Dependencies gate transitives behind
+# `python_version < "3.11"` markers — aiohttp needs async-timeout, pytest needs
+# exceptiongroup — and a resolve on a newer interpreter silently omits them.
+# The result installs fine everywhere except the floor, which is the one version
+# the pins exist to certify. Resolving on the floor yields the superset; the
+# extra pins are inert on newer interpreters because a constraint only applies
+# to a package that is actually being installed.
 #
 # The regenerated file replaces constraints.txt only after every step succeeds:
 # the resolve writes to a temp file and is validated before an atomic mv, so a
 # resolver failure leaves the committed artifact untouched.
 set -euo pipefail
 
-PYTHON="${PYTHON:-${1:-python3}}"
+# Keep in sync with requires-python in pyproject.toml (asserted by
+# tests/test_packaging.py::test_regen_script_targets_the_declared_floor).
+FLOOR_MINOR=10
+
+PYTHON="${PYTHON:-${1:-python3.$FLOOR_MINOR}}"
 OUT="constraints.txt"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/vb-constraints.XXXXXX")"
 TMP_OUT="$(mktemp "${TMPDIR:-/tmp}/vb-constraints-out.XXXXXX")"
@@ -25,12 +37,16 @@ command -v "$PYTHON" >/dev/null 2>&1 || {
   exit 1
 }
 
-# Fail fast with an actionable message rather than deep inside pip's resolver.
-# Stock macOS still ships /usr/bin/python3 as 3.9, which is below the floor.
-"$PYTHON" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' || {
-  echo "error: $PYTHON is $("$PYTHON" -V 2>&1), but this project requires >= 3.10." >&2
-  echo "       Pass a newer interpreter, e.g.:" >&2
-  echo "         PYTHON=python3.12 bash scripts/regen-constraints.sh" >&2
+# Require the floor exactly. A newer interpreter resolves a strictly smaller
+# closure (marker-gated transitives disappear), producing an artifact that is
+# broken precisely on the floor — so ">= floor" is not a sufficient check here.
+"$PYTHON" -c "import sys; sys.exit(0 if sys.version_info[:2] == (3, $FLOOR_MINOR) else 1)" || {
+  echo "error: $PYTHON is $("$PYTHON" -V 2>&1), but constraints.txt must be" >&2
+  echo "       regenerated on the floor interpreter (3.$FLOOR_MINOR)." >&2
+  echo "       Dependencies gate transitives behind python_version < \"3.11\";" >&2
+  echo "       resolving on a newer version drops them and the pins then fail" >&2
+  echo "       on 3.$FLOOR_MINOR. Re-run with:" >&2
+  echo "         PYTHON=python3.$FLOOR_MINOR bash scripts/regen-constraints.sh" >&2
   exit 1
 }
 
@@ -69,6 +85,16 @@ for required in edge-tts pytest packaging; do
   }
 done
 
+# Floor-only transitives. Their presence is the signal that this resolve really
+# happened on 3.10 and not on a newer interpreter that drops them.
+for floor_only in async-timeout exceptiongroup tomli; do
+  grep -qiE "^${floor_only}==" "$FROZEN" || {
+    echo "error: refusing to write $OUT — missing floor-gated pin: $floor_only" >&2
+    echo "       This usually means the resolve did not run on 3.$FLOOR_MINOR." >&2
+    exit 1
+  }
+done
+
 # A local path or VCS URL would make the artifact machine-specific.
 if grep -qE '(@ )?(file://|git\+|https?://|/Users/|/home/)' "$FROZEN"; then
   echo "error: refusing to write $OUT — non-portable entry:" >&2
@@ -80,7 +106,13 @@ fi
   echo "# Fully-pinned direct and transitive versions for a reproducible install."
   echo "#"
   echo "# GENERATED FILE — do not hand-edit. Regenerate with:"
-  echo "#   bash scripts/regen-constraints.sh"
+  echo "#   PYTHON=python3.$FLOOR_MINOR bash scripts/regen-constraints.sh"
+  echo "#"
+  echo "# Resolved on the 3.$FLOOR_MINOR floor on purpose: aiohttp and pytest gate"
+  echo "# transitives behind python_version < \"3.11\", so a resolve on a newer"
+  echo "# interpreter omits them and the result breaks on the floor. The extra"
+  echo "# pins are inert elsewhere — a constraint only binds a package that is"
+  echo "# actually installed."
   echo "#"
   echo "# pyproject.toml is the source of truth for what is ALLOWED (ranges);"
   echo "# this file records what was actually VERIFIED (exact versions)."
