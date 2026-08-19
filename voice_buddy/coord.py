@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 import os
 import signal
+import subprocess
 import sys
 import tempfile
 from contextlib import contextmanager
@@ -179,18 +180,51 @@ def _process_alive(pid: int) -> bool:
         return False
 
 
+def _process_is_listener(pid: int) -> bool:
+    """Return True iff `pid` looks like our hotkey listener, not a stranger.
+
+    `kill -0` only proves *something* holds the PID. If the listener is killed
+    uncleanly its pidfile survives, and the OS eventually recycles that number
+    onto an unrelated process — after which the supervisor sees "alive", skips
+    the respawn, and F2 stays dead until the file is removed by hand.
+
+    Confirms the command line actually names our module. On any platform or
+    error where we cannot tell, returns True so an unreadable `ps` can never
+    cause us to kill or duplicate a healthy listener.
+    """
+    if sys.platform == "win32":
+        return True
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "command=", "-p", str(pid)],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return True  # can't tell — assume it is ours
+    if out.returncode != 0:
+        return False  # ps says the pid is gone
+    cmdline = out.stdout.strip()
+    if not cmdline:
+        return False
+    return "voice_buddy.hotkey_listener" in cmdline
+
+
 def listener_alive(version_check: bool = True) -> bool:
     """Return True iff a live, version-compatible listener is running.
 
     A listener is "alive" when:
       1. listener.pid file exists and contains a valid integer PID
       2. kill -0 against that PID succeeds
-      3. (if version_check) listener.version matches voice_buddy.__version__
+      3. that PID is actually our listener, not a recycled stranger
+      4. (if version_check) listener.version matches voice_buddy.__version__
 
     Failure of any condition returns False so the supervisor will spawn fresh.
     """
     pid = _read_listener_pid()
     if pid is None or not _process_alive(pid):
+        return False
+    if not _process_is_listener(pid):
+        logger.debug("listener.pid %s belongs to another process; treating as stale", pid)
         return False
     if version_check:
         from voice_buddy import __version__ as my_version
@@ -201,9 +235,13 @@ def listener_alive(version_check: bool = True) -> bool:
 
 
 def get_listener_pid() -> Optional[int]:
-    """Return the live listener PID or None."""
+    """Return the live listener PID or None.
+
+    Verifies ownership as well as liveness: this PID is a signal target, and
+    signalling a recycled PID would hit an unrelated process.
+    """
     pid = _read_listener_pid()
-    if pid is not None and _process_alive(pid):
+    if pid is not None and _process_alive(pid) and _process_is_listener(pid):
         return pid
     return None
 

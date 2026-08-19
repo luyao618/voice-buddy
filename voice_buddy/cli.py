@@ -289,6 +289,34 @@ def do_stop() -> int:
     return 0
 
 
+def do_hotkey_restart() -> int:
+    """Terminate the hotkey listener by PID so SessionStart respawns it.
+
+    Scoped replacement for `pkill -f hotkey_listener`, which matches on command
+    line and will signal any process whose arguments happen to contain that
+    string. This resolves the listener through its pidfile and verifies the PID
+    really is ours before signalling, so it cannot hit a bystander.
+    """
+    import signal as _signal
+    from voice_buddy import coord
+
+    pid = coord.get_listener_pid()
+    if pid is None:
+        # Also clear a stale pidfile so the next SessionStart starts clean.
+        coord.cleanup_stale_listener_artifacts()
+        print("No running listener found. It will start on the next "
+              "Claude Code session.")
+        return 0
+
+    if coord.signal_listener(_signal.SIGTERM):
+        print(f"Stopped listener (pid {pid}). It will restart on the next "
+              f"Claude Code session.")
+        return 0
+
+    print(f"Could not signal listener (pid {pid}).", file=sys.stderr)
+    return 1
+
+
 def do_set_hotkey(hotkey: str | None = None,
                   disable: bool = False,
                   enable: bool = False) -> int:
@@ -394,6 +422,12 @@ def main() -> None:
     # stop
     subparsers.add_parser("stop", help="Immediately stop all currently-playing audio")
 
+    # hotkey-restart: scoped alternative to `pkill -f hotkey_listener`
+    subparsers.add_parser(
+        "hotkey-restart",
+        help="Stop the hotkey listener by PID (it respawns on the next session)",
+    )
+
     # hotkey-doctor
     doctor_parser = subparsers.add_parser(
         "hotkey-doctor",
@@ -460,6 +494,8 @@ def main() -> None:
         do_off()
     elif args.command == "stop":
         sys.exit(do_stop())
+    elif args.command == "hotkey-restart":
+        sys.exit(do_hotkey_restart())
     elif args.command == "hotkey-doctor":
         sys.exit(do_hotkey_doctor(
             non_interactive=args.non_interactive,
