@@ -219,7 +219,8 @@ def test_checklist_platform_claims_match_the_workflow():
 def test_ci_scans_artifact_contents_not_just_member_names():
     """Member names alone let embedded credentials ship.
 
-    Demonstrated: an AWS key, a GitHub token and `/Users/alice/...` were all
+    Demonstrated: an AWS key, a GitHub token and another developer's home
+    path were all
     injected into `voice_buddy/config.py`, reached both the wheel and the
     sdist, and the name-only check still reported clean.
     """
@@ -230,18 +231,32 @@ def test_ci_scans_artifact_contents_not_just_member_names():
 
 
 def test_artifact_scanner_flags_credentials_and_foreign_home_paths():
-    """The scanner's own contract, exercised directly."""
+    """The scanner's own contract, exercised directly.
+
+    The literals are assembled at runtime rather than written out, because this
+    file ships in the sdist and the scanner reads it: spelling a credential
+    here verbatim would make a clean tree fail its own gate. Widening the
+    allowlist to excuse them would blunt the scanner instead.
+    """
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
     import scan_artifacts
 
+    aws = "AKIA" + "JKLMNOPQRSTUVWXY"
+    gh = "ghp_" + "a" * 36
+    openai = "sk-" + "b" * 40
+    pem = "-----BEGIN " + "RSA PRIVATE KEY-----"
+    assigned = 'api_key = "' + "c" * 24 + '"'
+    home_mac = "/Users/" + "alice/work/thing"
+    home_linux = "/home/" + "bob/src"
+
     cases = [
-        ('AWS_KEY = "AKIAJKLMNOPQRSTUVWXY"', "aws-access-key"),
-        ('T = "ghp_' + "a" * 36 + '"', "github-token"),
-        ('K = "sk-' + "b" * 40 + '"', "openai-key"),
-        ("-----BEGIN RSA PRIVATE KEY-----", "private-key-block"),
-        ('api_key = "' + "c" * 24 + '"', "assigned-secret"),
-        ("path = /Users/alice/work/thing", "developer-home-path"),
-        ("path = /home/bob/src", "developer-home-path"),
+        (f'AWS_KEY = "{aws}"', "aws-access-key"),
+        (f'T = "{gh}"', "github-token"),
+        (f'K = "{openai}"', "openai-key"),
+        (pem, "private-key-block"),
+        (assigned, "assigned-secret"),
+        (f"path = {home_mac}", "developer-home-path"),
+        (f"path = {home_linux}", "developer-home-path"),
     ]
     for text, expected in cases:
         findings = scan_artifacts.scan_text("f.py", text)
@@ -259,15 +274,40 @@ def test_artifact_scanner_allows_declared_synthetic_fixtures():
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
     import scan_artifacts
 
+    victim = "/Users/" + "victim/.claude/projects/LEAKED.jsonl"
+    payload = "/Users/" + "u/.claude/projects/p/session.jsonl"
+    windows = "C:\\\\Users\\\\test\\\\AppData"
+    aws_example = "AKIA" + "IOSFODNN7EXAMPLE"
+
     for text in [
-        '"/Users/victim/.claude/projects/LEAKED.jsonl"',
-        '"transcript_path": "/Users/u/.claude/projects/p/session.jsonl"',
-        'os.environ["APPDATA"] = "C:\\\\Users\\\\test\\\\AppData"',
-        '"my aws key is AKIAIOSFODNN7EXAMPLE"',
+        f'"{victim}"',
+        f'"transcript_path": "{payload}"',
+        f'os.environ["APPDATA"] = "{windows}"',
+        f'"my aws key is {aws_example}"',
     ]:
         assert scan_artifacts.scan_text("t.py", text) == [], (
             f"scanner flagged a declared synthetic fixture: {text!r}"
         )
+
+
+def test_a_clean_tree_passes_its_own_artifact_scan():
+    """The gate must not fail on the repository it is meant to protect.
+
+    Guards against a test fixture spelling a credential verbatim: this file
+    ships in the sdist, so a literal here would make every clean build fail.
+    """
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import scan_artifacts
+
+    findings = []
+    for path in sorted((REPO_ROOT / "tests").glob("*.py")):
+        findings.extend(scan_artifacts.scan_text(path.name, path.read_text()))
+    for path in sorted((REPO_ROOT / "voice_buddy").glob("*.py")):
+        findings.extend(scan_artifacts.scan_text(path.name, path.read_text()))
+    assert not findings, (
+        "the repository's own sources trip the artifact scanner:\n  "
+        + "\n  ".join(findings)
+    )
 
     """A stale pin here sends users back to the version we moved off."""
     try:
