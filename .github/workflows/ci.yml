@@ -78,16 +78,17 @@ jobs:
         # `.pip-audit-ignore` with a rationale. Nothing is waived silently.
         run: |
           set -euo pipefail
-          if [ -s .pip-audit-ignore ]; then
-            # One `GHSA-...`/`PYSEC-...` id per line; `#` comments ignored.
-            IGNORES=$(grep -vE '^\s*(#|$)' .pip-audit-ignore \
-                      | sed 's/^/--ignore-vuln /' | tr '\n' ' ')
+          # `|| true`: grep exits 1 when the file holds only comments, which is
+          # the normal state, and `set -e` would abort the step on that alone.
+          IGNORES=$(grep -vE '^[[:space:]]*(#|$)' .pip-audit-ignore \
+                    | sed 's/^/--ignore-vuln /' | tr '\n' ' ' || true)
+          if [ -n "${IGNORES// /}" ]; then
             echo "Applying reviewed exceptions: $IGNORES"
-            # shellcheck disable=SC2086
-            python -m pip_audit --progress-spinner off $IGNORES
           else
-            python -m pip_audit --progress-spinner off
+            echo "No advisory exceptions in effect."
           fi
+          # shellcheck disable=SC2086
+          python -m pip_audit --progress-spinner off $IGNORES
 
   plugin-validation:
     name: plugin manifests
