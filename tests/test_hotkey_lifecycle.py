@@ -428,11 +428,17 @@ def test_signal_listener_sends_nothing_when_ps_fails(tmp_vb_dir, signal_spy, fai
 
 @pytest.mark.parametrize("failure", PS_FAILURES)
 def test_supersede_sends_no_signal_when_ps_fails(tmp_vb_dir, signal_spy, failure):
-    """The upgrade handoff must not terminate an unverified process either."""
+    """The upgrade handoff must not terminate an unverified process either.
+
+    A live PID we cannot classify reports UNVERIFIABLE rather than None: the
+    caller has to tell "nothing to retire" apart from "something is there but
+    we cannot prove whose it is", because only the first permits a spawn.
+    """
     coord.write_atomic(coord.listener_pid_path(), str(os.getpid()))
     coord.write_atomic(coord.listener_version_path(), "0.0.0-old")
     with mock.patch("subprocess.run", side_effect=failure):
-        assert listener_supervisor._retire_superseded_listener() is None
+        assert (listener_supervisor._retire_superseded_listener()
+                is listener_supervisor.UNVERIFIABLE)
     assert signal_spy == []
 
 
@@ -584,6 +590,188 @@ def test_no_replacement_spawns_when_the_old_listener_survives_sigkill(
 
 def test_retire_is_a_no_op_when_nothing_is_running(tmp_vb_dir):
     assert listener_supervisor._retire_superseded_listener() is None
+
+
+# --- Version drift with unverifiable ownership ------------------------------
+#
+# The dangerous combination: the recorded version is stale (so the liveness
+# check fails and the supervisor wants to spawn), a process is still holding
+# the pidfile, and `ps` cannot say whose it is. Doing anything here risks a
+# second EventTap.
+
+@pytest.mark.parametrize("failure", PS_FAILURES)
+def test_version_drift_with_unknown_ownership_spawns_nothing(
+    tmp_vb_dir, monkeypatch, failure
+):
+    """Zero signal, zero cleanup, zero spawn — the whole implementation path."""
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(listener_supervisor, "_hotkey_enabled", lambda: True)
+
+    live = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        coord.write_atomic(coord.listener_pid_path(), str(live.pid))
+        coord.write_atomic(coord.listener_version_path(), "0.0.0-old")
+
+        # Record signals locally rather than via the signal_spy fixture, whose
+        # os.kill patch would otherwise still be active during teardown and
+        # swallow the cleanup kill.
+        delivered = []
+        real_kill = os.kill
+
+        def spy(target, sig):
+            if sig != 0:
+                delivered.append((target, sig))
+                return None
+            return real_kill(target, sig)
+
+        # Patch only `coord`'s view of subprocess: patching the module globally
+        # would also break Popen.wait() during teardown.
+        with mock.patch.object(coord.subprocess, "run", side_effect=failure), \
+             mock.patch("os.kill", side_effect=spy), \
+             mock.patch.object(listener_supervisor, "_spawn_detached_listener") as spawn:
+            result = listener_supervisor.ensure_listener_for_session("sid-unknown")
+
+        assert result is False, "must not report success"
+        spawn.assert_not_called()
+        assert delivered == []
+        # The artifacts describe a process that may still be live: keep them.
+        assert coord.listener_pid_path().exists()
+        assert coord.listener_version_path().exists()
+        assert live.poll() is None, "the unverified process must be left alone"
+    finally:
+        live.kill()
+        live.wait(timeout=5)
+
+
+def test_version_drift_with_foreign_pid_does_spawn(tmp_vb_dir, monkeypatch):
+    """FOREIGN is not UNKNOWN: a recycled PID means our listener is gone.
+
+    Guards the guard — an over-broad block would strand the user with no
+    listener whenever the pidfile happened to name someone else's process.
+    """
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(listener_supervisor, "_hotkey_enabled", lambda: True)
+    # The pytest process is alive and demonstrably not our listener.
+    coord.write_atomic(coord.listener_pid_path(), str(os.getpid()))
+    coord.write_atomic(coord.listener_version_path(), "0.0.0-old")
+
+    with mock.patch.object(listener_supervisor, "_spawn_detached_listener") as spawn:
+        listener_supervisor.ensure_listener_for_session("sid-foreign")
+    spawn.assert_called_once()
+
+
+def test_absent_pid_with_version_drift_spawns(tmp_vb_dir, monkeypatch):
+    """No process at all: cleanup and spawn are the correct response."""
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(listener_supervisor, "_hotkey_enabled", lambda: True)
+    coord.write_atomic(coord.listener_pid_path(), str(_dead_pid()))
+    coord.write_atomic(coord.listener_version_path(), "0.0.0-old")
+
+    with mock.patch.object(listener_supervisor, "_spawn_detached_listener") as spawn:
+        listener_supervisor.ensure_listener_for_session("sid-absent")
+    spawn.assert_called_once()
+
+
+# --- Stable process identity across the escalation --------------------------
+
+def test_process_identity_pairs_pid_with_start_time(tmp_vb_dir):
+    ident = coord.process_identity(os.getpid())
+    assert ident is not None
+    assert ident.startswith(f"{os.getpid()}@")
+
+
+def test_process_identity_is_none_when_ps_is_unusable(tmp_vb_dir):
+    with mock.patch("subprocess.run", side_effect=OSError("no ps")):
+        assert coord.process_identity(os.getpid()) is None
+
+
+def test_process_identity_differs_between_processes(tmp_vb_dir):
+    """Two live processes must never share an identity."""
+    other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        assert coord.process_identity(os.getpid()) != coord.process_identity(other.pid)
+    finally:
+        other.kill()
+        other.wait(timeout=5)
+
+
+def test_still_same_owned_process_rejects_a_changed_identity(tmp_vb_dir):
+    with mock.patch.object(coord, "process_ownership", return_value=coord.OWNED):
+        with mock.patch.object(coord, "process_identity", return_value="1@later"):
+            assert coord.still_same_owned_process(1, "1@earlier") is False
+
+
+def test_get_listener_target_refuses_an_unidentifiable_process(tmp_vb_dir):
+    """No stable handle means no signal authority, even if ownership says OWNED."""
+    coord.write_atomic(coord.listener_pid_path(), str(os.getpid()))
+    with mock.patch.object(coord, "process_ownership", return_value=coord.OWNED), \
+         mock.patch.object(coord, "process_identity", return_value=None):
+        assert coord.get_listener_target() is None
+
+
+def test_no_sigkill_when_the_pid_is_recycled_after_sigterm(tmp_vb_dir, monkeypatch):
+    """The escalation race OC-R identified.
+
+    The old listener exits on SIGTERM and the kernel hands its number to an
+    unrelated process before the grace period elapses. Checking the bare
+    integer would report "still alive" and escalate, sending SIGKILL to the
+    bystander. Re-verifying the identity catches the substitution.
+    """
+    import signal as _signal
+    pid = os.getpid()
+    old = f"{pid}@Wed Aug 19 10:00:00 2026"
+    new = f"{pid}@Wed Aug 19 15:30:00 2026"   # bystander inherits the PID
+
+    state = {"identity": old}
+    sent = []
+
+    def fake_kill(target, sig):
+        if sig == 0:
+            return None            # something holds the PID — now the bystander
+        sent.append(sig)
+        if sig == _signal.SIGTERM:
+            state["identity"] = new
+        return None
+
+    monkeypatch.setattr(listener_supervisor, "SHUTDOWN_GRACE_SECONDS", 0.05)
+    coord.write_atomic(coord.listener_pid_path(), str(pid))
+
+    with mock.patch.object(coord, "process_ownership", return_value=coord.OWNED), \
+         mock.patch.object(coord, "process_identity",
+                           side_effect=lambda p: state["identity"]), \
+         mock.patch("os.kill", side_effect=fake_kill):
+        result = listener_supervisor._retire_superseded_listener()
+
+    assert _signal.SIGKILL not in sent, "SIGKILL reached a recycled PID"
+    assert sent == [_signal.SIGTERM]
+    assert result is True, "the original listener is gone, so this is success"
+
+
+def test_no_signal_at_all_when_identity_changes_before_sigterm(tmp_vb_dir, monkeypatch):
+    """The process exits between reading the pidfile and the first signal."""
+    import signal as _signal
+    pid = os.getpid()
+    coord.write_atomic(coord.listener_pid_path(), str(pid))
+
+    identities = iter([f"{pid}@first", f"{pid}@second", f"{pid}@second",
+                       f"{pid}@second", f"{pid}@second"])
+    sent = []
+
+    def fake_kill(target, sig):
+        if sig != 0:
+            sent.append(sig)
+        return None
+
+    with mock.patch.object(coord, "process_ownership", return_value=coord.OWNED), \
+         mock.patch.object(coord, "process_identity",
+                           side_effect=lambda p: next(identities, f"{pid}@second")), \
+         mock.patch("os.kill", side_effect=fake_kill):
+        result = listener_supervisor._retire_superseded_listener()
+
+    assert sent == [], "signalled a process that had already been replaced"
+    assert result is True
 
 
 def test_zombie_process_does_not_count_as_a_live_listener(tmp_vb_dir):

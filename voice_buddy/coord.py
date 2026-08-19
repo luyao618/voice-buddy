@@ -221,6 +221,40 @@ FOREIGN = "foreign"
 UNKNOWN = "unknown"
 
 
+def process_identity(pid: int) -> Optional[str]:
+    """Return a stable identity for `pid`, or None if it cannot be determined.
+
+    A bare PID is not a stable handle: the kernel recycles it, so a PID that
+    was ours a moment ago can belong to something else by the time the next
+    signal is sent. Pairing the PID with its start time makes the handle stable
+    for the lifetime of the process — a recycled PID always has a later start
+    time, so the identity no longer matches.
+
+    Returns "<pid>@<start time>", or None when `ps` gives no usable answer
+    (process gone, or the probe itself failed).
+    """
+    if sys.platform == "win32":
+        return None
+    started = _ps_field(pid, "lstart=")
+    if not started:
+        return None
+    return f"{pid}@{started}"
+
+
+def _ps_field(pid: int, fmt: str) -> Optional[str]:
+    """Read one `ps -o <fmt>` field for `pid`. None if unavailable."""
+    try:
+        out = subprocess.run(
+            ["ps", "-o", fmt, "-p", str(pid)],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    return out.stdout.strip() or None
+
+
 def process_ownership(pid: int) -> str:
     """Classify `pid` as OWNED / FOREIGN / UNKNOWN.
 
@@ -279,6 +313,37 @@ def listener_alive(version_check: bool = True) -> bool:
         if listener_ver != my_version:
             return False
     return True
+
+
+def get_listener_target() -> Optional[tuple]:
+    """Return `(pid, identity)` for a listener that is safe to signal, else None.
+
+    The identity travels with the PID so a caller that signals more than once —
+    SIGTERM, then SIGKILL after a grace period — can confirm it is still
+    talking to the same process. Between those two signals the original may
+    exit and the kernel may hand its number to something else; re-checking the
+    bare integer would then authorize killing a bystander.
+    """
+    pid = get_listener_pid()
+    if pid is None:
+        return None
+    identity = process_identity(pid)
+    if identity is None:
+        # Live but unidentifiable: no stable handle, so no signal authority.
+        return None
+    return pid, identity
+
+
+def still_same_owned_process(pid: int, identity: str) -> bool:
+    """True iff `pid` is still the same process, and still verifiably ours.
+
+    Used before every non-zero signal. A changed or missing identity means the
+    original process is gone — which is the desired outcome, so callers treat
+    it as "already exited" rather than escalating.
+    """
+    if process_identity(pid) != identity:
+        return False
+    return process_ownership(pid) == OWNED
 
 
 def get_listener_pid() -> Optional[int]:
