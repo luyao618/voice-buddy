@@ -6,7 +6,7 @@ shipping.
 
 Prerequisites:
 - macOS
-- `pip install -r requirements.txt` (installs `pyobjc-framework-Quartz`)
+- `pip install -c constraints.txt -e ".[dev]"` (installs `pyobjc-framework-Quartz` and pytest at the verified pins)
 - voice-buddy plugin installed via Claude Code
 - **System Settings → Keyboard → "Use F1, F2, etc. as standard function keys"** must be ENABLED, otherwise F2 sends "brightness up" instead of a keycode the EventTap can see
 - **System Settings → Privacy & Security → Accessibility** must list and check the Python interpreter that runs voice-buddy. Run `voice-buddy hotkey-doctor` to see the exact path.

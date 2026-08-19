@@ -42,7 +42,7 @@ Voice Buddy hooks into [Claude Code's hook system](https://docs.anthropic.com/en
 #### Prerequisites
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — tested against **v2.1.179**
-- Python 3.9+
+- Python 3.10 – 3.14 (3.9 is not supported; see Development below)
 - Audio player (macOS: `afplay` built-in, Linux: `paplay`/`aplay`/`mpg123`)
 
 > **Claude Code compatibility.** Voice Buddy ships its skill under
@@ -136,7 +136,7 @@ The marketplace installer copies plugin files but does **not** install Python de
 ##### Step 1 — Install the macOS dependency
 
 ```bash
-pip3 install 'pyobjc-framework-Quartz>=10.0,<12.0'
+pip3 install 'pyobjc-framework-Quartz>=10.0,<13'
 ```
 
 If you have multiple Python interpreters (system, Homebrew, pyenv, conda, depot_tools), make sure to install into the **same one** that runs `voice-buddy`. To find out which one:
@@ -149,7 +149,7 @@ voice-buddy hotkey-doctor --non-interactive
 Install pyobjc into that exact interpreter:
 
 ```bash
-/path/to/python3 -m pip install 'pyobjc-framework-Quartz>=10.0,<12.0'
+/path/to/python3 -m pip install 'pyobjc-framework-Quartz>=10.0,<13'
 ```
 
 ##### Step 2 — Enable "Use F1, F2, etc. as standard function keys"
@@ -308,15 +308,85 @@ voice-buddy/
 ```bash
 git clone https://github.com/luyao618/voice-buddy.git
 cd voice-buddy
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
+
+# Editable install with dev extras, pinned to the verified versions
+pip install -c constraints.txt -e ".[dev]"
 
 # Run tests
 python3 -m pytest tests/ -v
 
+# Dependency advisory check
+python3 -m pip_audit
+
 # Regenerate pre-packaged audio (after editing templates)
 python3 -m voice_buddy.generate_audio
 ```
+
+#### Dependency files
+
+| File | Role |
+|------|------|
+| `pyproject.toml` | Source of truth. Declares what versions are **allowed** (ranges). |
+| `constraints.txt` | Fully-pinned direct **and** transitive versions — what was actually **verified**. |
+| `requirements.txt` / `requirements-dev.txt` | Convenience installers that mirror `pyproject.toml`. |
+
+Install reproducibly by passing the constraints file:
+
+```bash
+pip install -c constraints.txt .            # runtime only
+pip install -c constraints.txt -e ".[dev]"  # development
+```
+
+Omitting `-c constraints.txt` still works and resolves anything inside the
+declared ranges — use that to pick up newer versions deliberately.
+
+**Updating dependencies:**
+
+1. Edit the range in `pyproject.toml` (and mirror it in `requirements*.txt`).
+2. Run `PYTHON=python3.10 bash scripts/regen-constraints.sh` to re-resolve and
+   re-pin. It needs only CPython's bundled `venv`/`ensurepip` — no `uv`, no
+   preinstalled pip.
+   **Regenerate on the 3.10 floor, not a newer interpreter.** `aiohttp` and
+   `pytest` gate transitives behind `python_version < "3.11"`
+   (`async-timeout`, `exceptiongroup`), so a resolve on 3.11+ silently omits
+   them and the result installs everywhere *except* the floor. The script
+   enforces this and refuses any other version; the extra pins are inert on
+   newer interpreters, since a constraint only binds a package actually being
+   installed.
+   A failed resolve exits non-zero and leaves `constraints.txt` untouched.
+3. Run the suite and `python3 -m pip_audit`.
+
+`tests/test_packaging.py` fails if the three files disagree — on an extra
+dependency, a differing version range, a dropped environment marker, an
+unpinned constraint, or a pin that falls outside its declared range. It also
+walks the dependency closure, so removing any transitive pin from
+`constraints.txt` fails the suite rather than silently weakening the lock, and
+asserts the floor-gated pins are present so an off-floor regen is caught on
+any interpreter.
+
+#### Supported Python versions
+
+`3.10` – `3.14`, each verified by installing the constrained dependency set
+into a fresh virtualenv and running the full suite. `requires-python =
+">=3.10,<3.15"` encodes that matrix on both ends, so anything outside it is
+rejected at resolve time rather than installing and failing later.
+
+**3.9 is not supported.** `pyobjc-core` publishes no 3.9 wheel and its source
+build fails, and `pytest` 9.x / `pip` 26.x both declare `Requires-Python
+>=3.10`. The floor makes installers reject 3.9 up front rather than failing
+partway through a build.
+
+**3.15+ is not supported yet** — it doesn't exist, so it can't have been
+tested, and `pyobjc` tracks the CPython C-ABI closely enough that a new minor
+is exactly where this package would break. To add one: append the minor to
+`SUPPORTED_MINORS` in `tests/test_packaging.py`, add its classifier, raise the
+cap, and run the matrix on it. The contract test fails if the cap and
+`SUPPORTED_MINORS` disagree, so the cap can't be raised without the
+declaration.
+
+The packaging contracts run on every supported version, including the 3.10
+floor: `tomllib` is 3.11+, so the dev extra carries a `tomli` backport for
+3.10 rather than skipping the tests there.
 
 ---
 
@@ -360,7 +430,7 @@ Voice Buddy 接入 [Claude Code 的 Hook 系统](https://docs.anthropic.com/en/d
 #### 环境要求
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — 已在 **v2.1.179** 上验证
-- Python 3.9+
+- Python 3.10 – 3.14（不支持 3.9，原因见下方 Development 小节）
 - 音频播放器（macOS: `afplay` 内置, Linux: `paplay`/`aplay`/`mpg123`）
 
 > **Claude Code 兼容性说明.** Voice Buddy 的 skill 位于
@@ -451,7 +521,7 @@ Marketplace 安装器只会复制插件文件，**不会**安装 Python 依赖�
 ##### 第 ① 步 — 安装 macOS 依赖
 
 ```bash
-pip3 install 'pyobjc-framework-Quartz>=10.0,<12.0'
+pip3 install 'pyobjc-framework-Quartz>=10.0,<13'
 ```
 
 如果你电脑上有多个 Python 解释器（系统自带 / Homebrew / pyenv / conda / depot_tools 等），**必须装到运行 `voice-buddy` 的那一个**里。先用 doctor 查出来：
@@ -464,7 +534,7 @@ voice-buddy hotkey-doctor --non-interactive
 然后用那个路径直接装：
 
 ```bash
-/path/to/python3 -m pip install 'pyobjc-framework-Quartz>=10.0,<12.0'
+/path/to/python3 -m pip install 'pyobjc-framework-Quartz>=10.0,<13'
 ```
 
 ##### 第 ② 步 — 把 F1/F2 设成标准功能键

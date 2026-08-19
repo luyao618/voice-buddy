@@ -1,2 +1,13 @@
-edge-tts
-pytest
+# Development dependencies.
+#
+# Kept as a convenience installer; it mirrors [project.optional-dependencies]
+# dev in pyproject.toml, which is the source of truth. Prefer:
+#   pip install -c constraints.txt -e ".[dev]"
+#
+# The runtime deps come in via -r, so they are declared in exactly one place.
+# tests/test_packaging.py asserts this file and the dev extra stay identical.
+-r requirements.txt
+pytest>=8,<10
+pip-audit>=2.7
+packaging>=23
+tomli>=2; python_version < '3.11'
