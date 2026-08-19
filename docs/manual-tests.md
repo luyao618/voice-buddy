@@ -63,3 +63,53 @@ Stricter measurement (optional):
 3. Press F3 → audio stops.
 4. Press F2 → no effect (it is no longer the bound key).
 5. `voice-buddy config --hotkey F2` to restore.
+
+---
+
+## AC13 — Multiple concurrent sessions share one listener
+
+1. Open Claude Code in project A. Run `voice-buddy hotkey-doctor --non-interactive`
+   and note the `listener liveness` pid and the `sessions registry` count.
+2. Open Claude Code in project B, leaving A open. Re-run the doctor.
+   - Expect: the **same** pid, and the session count incremented by one.
+3. Start a long playback in A (`voice-buddy test sessionstart`) and press F2.
+   Audio stops.
+4. Close **only** B. Re-run the doctor in A.
+   - Expect: same pid, session count back down by one, listener still alive.
+5. Trigger playback in A and press F2 again → still stops.
+   Closing one window must not silence the other.
+6. Close A. After the listener's idle timer elapses (~30 s) the doctor reports
+   no listener, and `sessions registry` is empty.
+
+---
+
+## AC14 — Stale listener record after an unclean kill
+
+Covers PID reuse: the pidfile survives a `kill -9`, and the OS can hand that
+number to an unrelated process.
+
+1. With a session open, note the pid from `voice-buddy hotkey-doctor --non-interactive`.
+2. `kill -9 <pid>` — an unclean kill, so the pidfile is left behind.
+3. Run the doctor again. `listener liveness` must report **no live listener**,
+   not the dead pid.
+4. Open a new Claude Code session. A fresh listener spawns and F2 works again.
+5. Optional: run `voice-buddy hotkey-restart` at any point — it stops the
+   listener by pid (never by command-line pattern) and clears a stale record.
+   With no listener running it prints a normal message and exits 0.
+
+---
+
+## AC15 — Upgrade / reinstall
+
+1. With a session running and F2 working, reinstall or upgrade the plugin
+   (`/plugin uninstall voice-buddy` then `/plugin install voice-buddy`, or
+   `claude plugin update voice-buddy`).
+2. Start a new session.
+3. Run `voice-buddy hotkey-doctor --non-interactive`.
+   - `version handshake` must show `matched=<new version>`. A listener left
+     over from the previous version is terminated and respawned rather than
+     reused.
+4. Press F2 → playback stops, confirming the new listener holds the EventTap.
+5. If Python itself was upgraded or the venv recreated, expect
+   `[WARN] python interpreter … DRIFT` — Accessibility is granted per
+   executable path, so re-grant it to the path the doctor reports.

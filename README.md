@@ -211,6 +211,9 @@ If any row says FAIL or WARN, the detail message tells you what to fix.
 # Stop without using the hotkey (e.g. from another terminal)
 voice-buddy stop
 
+# Restart the hotkey listener (stops it by PID; a new session respawns it)
+voice-buddy hotkey-restart
+
 # Change the bound key
 voice-buddy config --hotkey F3
 
@@ -599,6 +602,9 @@ voice-buddy hotkey-doctor
 ```bash
 # 不靠快捷键也能停（例如另一个终端窗口）
 voice-buddy stop
+
+# 重启快捷键监听器（按 PID 停止；下个 session 会自动重新拉起）
+voice-buddy hotkey-restart
 
 # 改键
 voice-buddy config --hotkey F3
