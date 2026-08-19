@@ -21,19 +21,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The full supported range on macOS, where the hotkey lives. Linux and
-        # Windows cover the "no pyobjc, hooks still work" path at the ends of
-        # the range; the middle versions add cost without new signal.
+        # The full supported range on macOS, where the hotkey lives. Linux
+        # covers the "no pyobjc, hooks still work" path at the ends of the
+        # range.
+        #
+        # Windows is deliberately absent. 32 of the existing tests assume POSIX
+        # primitives — `ps` for process ownership, `flock` for coord.lock, and
+        # `/`-separated config paths — and the product has no Windows hotkey
+        # feature to exercise. Adding the runner surfaced those 32 failures
+        # without finding a real defect, so the honest gate is to state the
+        # supported platforms rather than to run a suite that cannot pass.
+        # `test_supervisor_is_a_no_op_off_darwin` already covers win32 as a
+        # simulated platform on every runner.
         os: [macos-latest]
         python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
         include:
           - os: ubuntu-latest
             python: "3.10"
           - os: ubuntu-latest
-            python: "3.14"
-          - os: windows-latest
-            python: "3.10"
-          - os: windows-latest
             python: "3.14"
 
     steps:

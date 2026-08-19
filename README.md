@@ -148,6 +148,11 @@ Config file location:
 - Linux: `~/.config/voice-buddy/config.json`
 - Windows: `%APPDATA%\voice-buddy\config.json`
 
+> **Platform support.** macOS and Linux are covered by CI. Windows has a
+> config path and the hooks are written to work there, but it is untested —
+> the global hotkey is macOS-only, and parts of the process supervision rely
+> on POSIX primitives. Treat Windows as best-effort.
+
 ### Supported Events
 
 | Event | When | Audio Source |
@@ -565,6 +570,10 @@ voice-buddy test notification
 - macOS: `~/Library/Application Support/voice-buddy/config.json`
 - Linux: `~/.config/voice-buddy/config.json`
 - Windows: `%APPDATA%\voice-buddy\config.json`
+
+> **平台支持说明.** macOS 与 Linux 有 CI 覆盖。Windows 有对应的配置路径、hook
+> 也是按可运行编写的，但**未经测试** —— 全局快捷键仅限 macOS，进程管理的部分
+> 实现依赖 POSIX 原语。Windows 请按 best-effort 对待。
 
 ### 支持的事件
 
