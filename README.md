@@ -211,6 +211,9 @@ If any row says FAIL or WARN, the detail message tells you what to fix.
 # Stop without using the hotkey (e.g. from another terminal)
 voice-buddy stop
 
+# Restart the hotkey listener (stops it by PID; a new session respawns it)
+voice-buddy hotkey-restart
+
 # Change the bound key
 voice-buddy config --hotkey F3
 
@@ -238,7 +241,8 @@ voice-buddy hotkey-doctor --json              # machine-readable
 |---------|-------|-----|
 | `voice-buddy hotkey-doctor` says `[FAIL] pyobjc importable` | pyobjc not installed in the right interpreter | Run Step 1 against the exact path the doctor reports |
 | `[FAIL] Accessibility granted` after granting it | Granted the wrong interpreter, or the path is a symlink | Re-run doctor; grant the path it reports; if symlink, grant the real binary |
-| F2 still doesn't work after all OK rows | Listener was spawned before pyobjc was installed | Restart Claude Code (or `pkill -f hotkey_listener` then reopen) |
+| F2 still doesn't work after all OK rows | Listener was spawned before pyobjc was installed | `voice-buddy hotkey-restart`, then start a new session |
+| F2 stopped working and the doctor shows a listener that isn't running | The listener was killed uncleanly and its PID was recycled onto another process | `voice-buddy hotkey-restart` clears the stale record; a new session respawns it |
 | F2 doesn't work after upgrading Python / recreating venv | Accessibility grant is bound to the executable path; the new python is a different file | Doctor will show `[WARN] python interpreter` with `DRIFT`; re-grant Accessibility to the new path |
 | Want to verify in a CI pipeline | — | `voice-buddy hotkey-doctor --non-interactive --json` |
 
@@ -599,6 +603,9 @@ voice-buddy hotkey-doctor
 # 不靠快捷键也能停（例如另一个终端窗口）
 voice-buddy stop
 
+# 重启快捷键监听器（按 PID 停止；下个 session 会自动重新拉起）
+voice-buddy hotkey-restart
+
 # 改键
 voice-buddy config --hotkey F3
 
@@ -626,7 +633,8 @@ voice-buddy hotkey-doctor --json              # 机器可读
 |------|------|------|
 | doctor 显示 `[FAIL] pyobjc importable` | pyobjc 没装到对的解释器 | 用第 ① 步对着 doctor 报告的路径重装 |
 | 已经授权了，doctor 还报 `[FAIL] Accessibility` | 授权了错的解释器，或路径是符号链接 | 重跑 doctor 看它给的路径；是符号链接就授权真实二进制 |
-| 所有 OK 但 F2 还是不响应 | 监听器是在你装 pyobjc 之前 spawn 的，已经因为 import 失败退出 | 重启 Claude Code（或 `pkill -f hotkey_listener` 再重开） |
+| 所有 OK 但 F2 还是不响应 | 监听器是在你装 pyobjc 之前 spawn 的，已经因为 import 失败退出 | 运行 `voice-buddy hotkey-restart`，然后开一个新 session |
+| F2 突然失效，且 doctor 显示的监听器其实没在跑 | 监听器被强杀后 PID 被系统回收给了别的进程 | `voice-buddy hotkey-restart` 会清掉这条陈旧记录，新 session 会重新拉起 |
 | 升级 Python / 重建 venv 后 F2 失效 | 辅助功能授权绑定可执行文件路径，新 python 是不同文件 | doctor 会显示 `[WARN] python interpreter` 含 `DRIFT`，重新授权新路径 |
 | 想在 CI 里验证 | — | `voice-buddy hotkey-doctor --non-interactive --json` |
 

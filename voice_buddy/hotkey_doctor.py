@@ -52,7 +52,7 @@ def check_pyobjc_importable() -> Dict[str, str]:
         return _row("pyobjc importable", OK, "Quartz module loaded")
     except ImportError as e:
         return _row("pyobjc importable", FAIL,
-                    f"pip install 'pyobjc-framework-Quartz>=10.0,<12.0' — {e}")
+                    f"pip install 'pyobjc-framework-Quartz>=10.0,<13' — {e}")
 
 
 def check_accessibility_granted() -> Dict[str, str]:

@@ -24,6 +24,18 @@ def tmp_vb_dir(tmp_path, monkeypatch):
     yield tmp_path
 
 
+@pytest.fixture
+def owned_pid(monkeypatch):
+    """Treat any live PID as our listener.
+
+    Tests use the pytest process as a stand-in listener because it is reliably
+    alive, but its command line is not `voice_buddy.hotkey_listener`, so the
+    real ownership probe rejects it. Stubbing the probe keeps these tests about
+    liveness and version handshake; ownership has its own tests below.
+    """
+    monkeypatch.setattr(coord, "process_ownership", lambda pid: coord.OWNED)
+
+
 def test_listener_alive_false_when_pidfile_missing(tmp_vb_dir):
     assert coord.listener_alive() is False
 
@@ -34,8 +46,9 @@ def test_listener_alive_false_when_pid_dead(tmp_vb_dir):
     assert coord.listener_alive() is False
 
 
-def test_listener_alive_false_on_version_drift(tmp_vb_dir):
-    # Use our own PID — guaranteed alive.
+def test_listener_alive_false_on_version_drift(tmp_vb_dir, owned_pid):
+    # Use our own PID — guaranteed alive — and claim ownership, since the
+    # pytest process is not literally `voice_buddy.hotkey_listener`.
     coord.write_atomic(coord.listener_pid_path(), str(os.getpid()))
     coord.write_atomic(coord.listener_version_path(), "0.0.0-old")
     assert coord.listener_alive(version_check=True) is False
@@ -43,7 +56,7 @@ def test_listener_alive_false_on_version_drift(tmp_vb_dir):
     assert coord.listener_alive(version_check=False) is True
 
 
-def test_listener_alive_true_when_pid_live_and_version_matches(tmp_vb_dir):
+def test_listener_alive_true_when_pid_live_and_version_matches(tmp_vb_dir, owned_pid):
     coord.write_atomic(coord.listener_pid_path(), str(os.getpid()))
     coord.write_atomic(coord.listener_version_path(), voice_buddy.__version__)
     assert coord.listener_alive() is True
@@ -113,8 +126,14 @@ def test_reload_listener_config_no_listener(tmp_vb_dir):
     assert coord.reload_listener_config() is False
 
 
-def test_reload_listener_config_version_drift_promotes_to_sigterm(tmp_vb_dir):
-    """When version drifts, reload sends SIGTERM instead of SIGHUP."""
+def test_reload_listener_config_version_drift_promotes_to_sigterm(tmp_vb_dir, owned_pid):
+    """When version drifts, reload sends SIGTERM instead of SIGHUP.
+
+    `owned_pid` stands in for the ownership probe: the sleeping child is not
+    literally `voice_buddy.hotkey_listener`, and reload now refuses to signal
+    anything it cannot verify. The refusal itself is covered by
+    test_hotkey_lifecycle.py.
+    """
     proc = subprocess.Popen(
         [sys.executable, "-c", "import time; time.sleep(60)"],
         stdout=subprocess.DEVNULL,
