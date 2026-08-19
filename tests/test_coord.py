@@ -33,7 +33,7 @@ def owned_pid(monkeypatch):
     real ownership probe rejects it. Stubbing the probe keeps these tests about
     liveness and version handshake; ownership has its own tests below.
     """
-    monkeypatch.setattr(coord, "_process_is_listener", lambda pid: True)
+    monkeypatch.setattr(coord, "process_ownership", lambda pid: coord.OWNED)
 
 
 def test_listener_alive_false_when_pidfile_missing(tmp_vb_dir):
@@ -126,8 +126,14 @@ def test_reload_listener_config_no_listener(tmp_vb_dir):
     assert coord.reload_listener_config() is False
 
 
-def test_reload_listener_config_version_drift_promotes_to_sigterm(tmp_vb_dir):
-    """When version drifts, reload sends SIGTERM instead of SIGHUP."""
+def test_reload_listener_config_version_drift_promotes_to_sigterm(tmp_vb_dir, owned_pid):
+    """When version drifts, reload sends SIGTERM instead of SIGHUP.
+
+    `owned_pid` stands in for the ownership probe: the sleeping child is not
+    literally `voice_buddy.hotkey_listener`, and reload now refuses to signal
+    anything it cannot verify. The refusal itself is covered by
+    test_hotkey_lifecycle.py.
+    """
     proc = subprocess.Popen(
         [sys.executable, "-c", "import time; time.sleep(60)"],
         stdout=subprocess.DEVNULL,

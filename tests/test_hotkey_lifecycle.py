@@ -8,6 +8,7 @@ non-macOS installs never need Quartz.
 import os
 import subprocess
 import sys
+import time
 from unittest import mock
 
 import pytest
@@ -25,7 +26,7 @@ def tmp_vb_dir(tmp_path, monkeypatch):
 @pytest.fixture
 def owned_pid(monkeypatch):
     """Treat any live PID as our listener (see test_coord.py::owned_pid)."""
-    monkeypatch.setattr(coord, "_process_is_listener", lambda pid: True)
+    monkeypatch.setattr(coord, "process_ownership", lambda pid: coord.OWNED)
 
 
 def _dead_pid():
@@ -106,19 +107,57 @@ def test_ownership_probe_accepts_a_real_listener_command_line(tmp_vb_dir):
             returncode=0,
             stdout="/usr/bin/python3 -m voice_buddy.hotkey_listener\n",
         )
-        assert coord._process_is_listener(4242) is True
+        assert coord.process_ownership(4242) == coord.OWNED
 
 
-def test_ownership_probe_fails_open_when_ps_is_unusable(tmp_vb_dir):
-    """If we cannot tell, assume ours: never kill or duplicate on ambiguity."""
-    with mock.patch("subprocess.run", side_effect=OSError("no ps")):
-        assert coord._process_is_listener(4242) is True
+@pytest.mark.parametrize("failure", [
+    OSError("no ps"),
+    subprocess.SubprocessError("boom"),
+    subprocess.TimeoutExpired(cmd="ps", timeout=5),
+])
+def test_ownership_probe_reports_unknown_when_ps_is_unusable(tmp_vb_dir, failure):
+    """No evidence means UNKNOWN — not a guess in either direction.
+
+    The previous version returned True here, which `get_listener_pid()` then
+    treated as authorization to signal. An unreadable `ps` could therefore
+    aim SIGTERM at whatever had inherited a recycled PID.
+    """
+    with mock.patch("subprocess.run", side_effect=failure):
+        assert coord.process_ownership(4242) == coord.UNKNOWN
 
 
-def test_ownership_probe_treats_missing_pid_as_gone(tmp_vb_dir):
+def test_ownership_probe_treats_missing_pid_as_foreign(tmp_vb_dir):
     with mock.patch("subprocess.run") as run:
         run.return_value = mock.Mock(returncode=1, stdout="")
+        assert coord.process_ownership(4242) == coord.FOREIGN
+
+
+def test_ownership_probe_treats_another_program_as_foreign(tmp_vb_dir):
+    with mock.patch("subprocess.run") as run:
+        run.return_value = mock.Mock(returncode=0, stdout="/usr/bin/vim notes.txt\n")
+        assert coord.process_ownership(4242) == coord.FOREIGN
+
+
+def test_liveness_view_treats_unknown_as_ours(tmp_vb_dir):
+    """Spawn decisions stay conservative: UNKNOWN must not trigger a duplicate.
+
+    This is the one place the ambiguous verdict is allowed to mean "probably
+    alive" — the cost is a stale hotkey, not a stray signal.
+    """
+    with mock.patch.object(coord, "process_ownership", return_value=coord.UNKNOWN):
+        assert coord._process_is_listener(4242) is True
+    with mock.patch.object(coord, "process_ownership", return_value=coord.FOREIGN):
         assert coord._process_is_listener(4242) is False
+
+
+def test_signal_authorization_requires_owned_not_merely_not_foreign(tmp_vb_dir):
+    """The asymmetry that fixes the blocker, stated directly."""
+    coord.write_atomic(coord.listener_pid_path(), str(os.getpid()))
+    with mock.patch.object(coord, "process_ownership", return_value=coord.UNKNOWN):
+        # Liveness may say "assume alive"...
+        assert coord._process_is_listener(os.getpid()) is True
+        # ...but no signal target is handed out.
+        assert coord.get_listener_pid() is None
 
 
 def test_cleanup_removes_stale_artifacts(tmp_vb_dir):
@@ -282,7 +321,7 @@ def test_hotkey_restart_signals_only_the_verified_listener(tmp_vb_dir, monkeypat
     the pidfile and verifies ownership first."""
     from voice_buddy import cli
 
-    monkeypatch.setattr(coord, "_process_is_listener", lambda pid: True)
+    monkeypatch.setattr(coord, "process_ownership", lambda pid: coord.OWNED)
     coord.write_atomic(coord.listener_pid_path(), str(os.getpid()))
 
     sent = []
@@ -314,3 +353,204 @@ def test_docs_do_not_recommend_pattern_based_kill():
         assert "pkill -f hotkey_listener" not in text, (
             f"{name} still recommends a pattern-based kill"
         )
+
+
+# --- No signal without verified ownership, at every call site ---------------
+#
+# `get_listener_pid()` is the single authorization gate. These drive each
+# public entry point with the ownership probe unable to answer, and assert
+# that nothing beyond the `kill(pid, 0)` liveness probe is delivered.
+
+PS_FAILURES = [
+    OSError("ps unavailable"),
+    subprocess.SubprocessError("ps crashed"),
+    subprocess.TimeoutExpired(cmd="ps", timeout=5),
+]
+
+
+@pytest.fixture
+def signal_spy():
+    """Record every real signal; let `kill(pid, 0)` liveness probes through."""
+    delivered = []
+    real_kill = os.kill
+
+    def spy(pid, sig):
+        if sig != 0:
+            delivered.append((pid, sig))
+            return None
+        return real_kill(pid, sig)
+
+    with mock.patch("os.kill", side_effect=spy):
+        yield delivered
+
+
+@pytest.mark.parametrize("failure", PS_FAILURES)
+def test_hotkey_restart_sends_no_signal_when_ps_fails(tmp_vb_dir, signal_spy, failure):
+    """The reported exploit: `ps` broken + recycled pidfile -> innocent SIGTERM."""
+    from voice_buddy import cli
+    coord.write_atomic(coord.listener_pid_path(), str(os.getpid()))
+    with mock.patch("subprocess.run", side_effect=failure):
+        rc = cli.do_hotkey_restart()
+    assert rc == 0
+    assert signal_spy == []
+
+
+@pytest.mark.parametrize("failure", PS_FAILURES)
+def test_config_reload_sends_no_signal_when_ps_fails(tmp_vb_dir, signal_spy, failure):
+    """reload_listener_config backs `on`/`off` and the hotkey config commands."""
+    coord.write_atomic(coord.listener_pid_path(), str(os.getpid()))
+    coord.write_atomic(coord.listener_version_path(), voice_buddy.__version__)
+    with mock.patch("subprocess.run", side_effect=failure):
+        assert coord.reload_listener_config() is False
+    assert signal_spy == []
+
+
+@pytest.mark.parametrize("failure", PS_FAILURES)
+def test_config_reload_version_drift_sends_no_signal_when_ps_fails(
+    tmp_vb_dir, signal_spy, failure
+):
+    """The drift branch promotes to SIGTERM, so it needs the same gate."""
+    coord.write_atomic(coord.listener_pid_path(), str(os.getpid()))
+    coord.write_atomic(coord.listener_version_path(), "0.0.0-old")
+    with mock.patch("subprocess.run", side_effect=failure):
+        assert coord.reload_listener_config() is False
+    assert signal_spy == []
+
+
+@pytest.mark.parametrize("failure", PS_FAILURES)
+def test_signal_listener_sends_nothing_when_ps_fails(tmp_vb_dir, signal_spy, failure):
+    import signal as _signal
+    coord.write_atomic(coord.listener_pid_path(), str(os.getpid()))
+    with mock.patch("subprocess.run", side_effect=failure):
+        assert coord.signal_listener(_signal.SIGTERM) is False
+    assert signal_spy == []
+
+
+@pytest.mark.parametrize("failure", PS_FAILURES)
+def test_supersede_sends_no_signal_when_ps_fails(tmp_vb_dir, signal_spy, failure):
+    """The upgrade handoff must not terminate an unverified process either."""
+    coord.write_atomic(coord.listener_pid_path(), str(os.getpid()))
+    coord.write_atomic(coord.listener_version_path(), "0.0.0-old")
+    with mock.patch("subprocess.run", side_effect=failure):
+        assert listener_supervisor._retire_superseded_listener() is None
+    assert signal_spy == []
+
+
+def test_on_off_reach_reload_through_the_verified_gate(tmp_vb_dir, signal_spy):
+    """`voice-buddy on` / `off` route through the same authorization."""
+    from voice_buddy import cli
+    coord.write_atomic(coord.listener_pid_path(), str(os.getpid()))
+    coord.write_atomic(coord.listener_version_path(), voice_buddy.__version__)
+    with mock.patch("subprocess.run", side_effect=OSError("ps unavailable")), \
+         mock.patch("voice_buddy.config.save_user_config"), \
+         mock.patch("voice_buddy.config.load_user_config", return_value={}):
+        cli.do_on()
+        cli.do_off()
+    assert signal_spy == []
+
+
+# --- Version-drift handoff (AC15) -------------------------------------------
+
+def test_superseded_listener_is_terminated_before_the_replacement_spawns(
+    tmp_vb_dir, monkeypatch
+):
+    """AC15: an upgrade must leave exactly one listener, not two.
+
+    Previously the supervisor saw the version mismatch, deleted the pid/version
+    files and spawned a replacement without signalling the old process. The old
+    listener kept its EventTap and, because session markers still existed, its
+    idle timer never fired — two listeners competing for F2.
+    """
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(listener_supervisor, "_hotkey_enabled", lambda: True)
+
+    old = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        coord.write_atomic(coord.listener_pid_path(), str(old.pid))
+        coord.write_atomic(coord.listener_version_path(), "0.0.0-old")
+        monkeypatch.setattr(coord, "process_ownership", lambda pid: coord.OWNED)
+
+        with mock.patch.object(listener_supervisor, "_spawn_detached_listener") as spawn:
+            listener_supervisor.ensure_listener_for_session("sid-upgrade")
+
+        # The old listener was terminated before the replacement was started.
+        assert old.wait(timeout=5) is not None
+        spawn.assert_called_once()
+    finally:
+        if old.poll() is None:
+            old.kill()
+            old.wait(timeout=5)
+
+
+def test_retire_waits_for_the_old_listener_to_actually_exit(tmp_vb_dir, monkeypatch):
+    """Returning before the process dies would overlap two EventTaps."""
+    old = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        coord.write_atomic(coord.listener_pid_path(), str(old.pid))
+        monkeypatch.setattr(coord, "process_ownership", lambda pid: coord.OWNED)
+        assert listener_supervisor._retire_superseded_listener() is True
+        # Already reaped by the time we return.
+        assert not coord._process_alive(old.pid)
+    finally:
+        if old.poll() is None:
+            old.kill()
+            old.wait(timeout=5)
+
+
+def test_no_replacement_spawns_when_the_old_listener_will_not_die(
+    tmp_vb_dir, monkeypatch
+):
+    """One stale hotkey beats two listeners fighting over the EventTap."""
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(listener_supervisor, "_hotkey_enabled", lambda: True)
+    monkeypatch.setattr(listener_supervisor, "SHUTDOWN_TIMEOUT_SECONDS", 0.1)
+    coord.write_atomic(coord.listener_pid_path(), str(os.getpid()))
+    coord.write_atomic(coord.listener_version_path(), "0.0.0-old")
+    monkeypatch.setattr(coord, "process_ownership", lambda pid: coord.OWNED)
+
+    # SIGTERM is swallowed, so the "old listener" never exits.
+    real_kill = os.kill
+    with mock.patch("os.kill",
+                    side_effect=lambda p, s: None if s != 0 else real_kill(p, s)):
+        with mock.patch.object(listener_supervisor, "_spawn_detached_listener") as spawn:
+            result = listener_supervisor.ensure_listener_for_session("sid-stuck")
+    assert result is False
+    spawn.assert_not_called()
+
+
+def test_retire_is_a_no_op_when_nothing_is_running(tmp_vb_dir):
+    assert listener_supervisor._retire_superseded_listener() is None
+
+
+def test_zombie_process_does_not_count_as_a_live_listener(tmp_vb_dir):
+    """A zombie still answers `kill(pid, 0)` but holds no EventTap.
+
+    Found while building the handoff test: SIGTERM landed, the child became
+    `<defunct>`, and the wait loop kept seeing it as alive until the timeout —
+    at which point the supervisor refused to spawn a replacement, so the
+    upgrade left the user with no listener at all.
+    """
+    import signal as _signal
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        os.kill(proc.pid, _signal.SIGTERM)
+        # Deliberately not reaped: this is the zombie window.
+        for _ in range(100):
+            if proc.poll() is not None or _is_defunct(proc.pid):
+                break
+            time.sleep(0.02)
+        assert _is_defunct(proc.pid), "could not produce a zombie to test"
+        assert coord._process_alive(proc.pid) is False
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait(timeout=5)
+
+
+def _is_defunct(pid):
+    out = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)],
+                         capture_output=True, text=True)
+    return out.returncode == 0 and out.stdout.strip().startswith("Z")

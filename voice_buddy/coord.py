@@ -165,12 +165,19 @@ def _read_listener_version() -> Optional[str]:
 
 
 def _process_alive(pid: int) -> bool:
-    """Return True iff the process is alive (signal 0 is a no-op probe)."""
+    """Return True iff the process is alive (signal 0 is a no-op probe).
+
+    A zombie — exited but not yet reaped by its parent — still answers
+    `kill(pid, 0)`, yet holds no resources and runs no code, so it must not
+    count as a live listener. Only the supervisor's own spawns can be zombies
+    here (the listener is normally detached via `start_new_session`), but a
+    handoff that waited on one would block for the full timeout and then refuse
+    to spawn a replacement.
+    """
     if pid <= 0:
         return False
     try:
         os.kill(pid, 0)
-        return True
     except ProcessLookupError:
         return False
     except PermissionError:
@@ -178,35 +185,75 @@ def _process_alive(pid: int) -> bool:
         return True
     except OSError:
         return False
+    return not _process_is_zombie(pid)
 
 
-def _process_is_listener(pid: int) -> bool:
-    """Return True iff `pid` looks like our hotkey listener, not a stranger.
+def _process_is_zombie(pid: int) -> bool:
+    """Return True iff `pid` is an unreaped, already-exited process."""
+    if sys.platform == "win32":
+        return False
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(pid)],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False  # no evidence; treat as a normal live process
+    return out.returncode == 0 and out.stdout.strip().startswith("Z")
 
-    `kill -0` only proves *something* holds the PID. If the listener is killed
-    uncleanly its pidfile survives, and the OS eventually recycles that number
-    onto an unrelated process — after which the supervisor sees "alive", skips
-    the respawn, and F2 stays dead until the file is removed by hand.
 
-    Confirms the command line actually names our module. On any platform or
-    error where we cannot tell, returns True so an unreadable `ps` can never
-    cause us to kill or duplicate a healthy listener.
+"""Ownership verdicts for a PID recorded in listener.pid.
+
+`kill -0` only proves *something* holds the PID. Distinguishing the three
+possible answers matters because the safe default differs by caller:
+
+    OWNED    the PID is demonstrably our hotkey listener
+    FOREIGN  the PID is demonstrably somebody else (recycled, or gone)
+    UNKNOWN  we could not tell — `ps` was unavailable, timed out, or errored
+
+A spawn decision may treat UNKNOWN as "probably alive" and skip respawning, at
+worst costing the user a hotkey until the next session. A *signal* decision may
+not: acting on UNKNOWN means sending SIGTERM to a process that might be
+anything. Signals therefore require OWNED.
+"""
+OWNED = "owned"
+FOREIGN = "foreign"
+UNKNOWN = "unknown"
+
+
+def process_ownership(pid: int) -> str:
+    """Classify `pid` as OWNED / FOREIGN / UNKNOWN.
+
+    Reads the process command line and looks for our listener module. Any
+    failure to obtain that evidence is UNKNOWN, never a guess in either
+    direction.
     """
     if sys.platform == "win32":
-        return True
+        # No portable `ps`; we cannot obtain evidence either way.
+        return UNKNOWN
     try:
         out = subprocess.run(
             ["ps", "-o", "command=", "-p", str(pid)],
             capture_output=True, text=True, timeout=5,
         )
     except (OSError, subprocess.SubprocessError):
-        return True  # can't tell — assume it is ours
+        # Includes TimeoutExpired: no evidence, so no signal authority.
+        return UNKNOWN
     if out.returncode != 0:
-        return False  # ps says the pid is gone
+        return FOREIGN  # ps says the pid is gone
     cmdline = out.stdout.strip()
     if not cmdline:
-        return False
-    return "voice_buddy.hotkey_listener" in cmdline
+        return FOREIGN
+    return OWNED if "voice_buddy.hotkey_listener" in cmdline else FOREIGN
+
+
+def _process_is_listener(pid: int) -> bool:
+    """Liveness-path view: treat UNKNOWN as ours to avoid duplicate listeners.
+
+    Only for deciding whether to *spawn*. Never use this to authorize a signal;
+    call `process_ownership(pid) == OWNED` for that.
+    """
+    return process_ownership(pid) != FOREIGN
 
 
 def listener_alive(version_check: bool = True) -> bool:
@@ -235,15 +282,22 @@ def listener_alive(version_check: bool = True) -> bool:
 
 
 def get_listener_pid() -> Optional[int]:
-    """Return the live listener PID or None.
+    """Return a PID that is safe to signal, or None.
 
-    Verifies ownership as well as liveness: this PID is a signal target, and
-    signalling a recycled PID would hit an unrelated process.
+    This is the single authorization gate for every signal path. It requires
+    OWNED — not merely "not FOREIGN" — so an unreadable or slow `ps` yields no
+    signal target rather than a guess. Callers that only need a liveness
+    opinion should use `listener_alive()`.
     """
     pid = _read_listener_pid()
-    if pid is not None and _process_alive(pid) and _process_is_listener(pid):
-        return pid
-    return None
+    if pid is None or not _process_alive(pid):
+        return None
+    if process_ownership(pid) != OWNED:
+        logger.debug(
+            "listener.pid %s is not verifiably ours; refusing to signal", pid
+        )
+        return None
+    return pid
 
 
 def cleanup_stale_listener_artifacts() -> None:
@@ -276,24 +330,24 @@ def signal_listener(sig: int) -> bool:
 
 
 def reload_listener_config() -> bool:
-    """Send SIGHUP to listener (or SIGTERM+respawn on version drift).
+    """Send SIGHUP to listener (or SIGTERM on version drift).
 
-    Returns True if a reload signal was sent (or respawn was triggered).
+    Reached from `on`/`off` and the hotkey config commands. Both branches route
+    through `get_listener_pid()`, so a recycled PID is never signalled: this
+    previously read the pidfile and signalled it directly with no ownership
+    check at all.
+
+    Returns True if a signal was delivered.
     """
-    pid = _read_listener_pid()
-    if pid is None or not _process_alive(pid):
+    pid = get_listener_pid()
+    if pid is None:
         return False
     from voice_buddy import __version__ as my_version
     listener_ver = _read_listener_version()
-    if listener_ver != my_version:
-        # Version drift: terminate stale listener; SessionStart will respawn.
-        try:
-            os.kill(pid, signal.SIGTERM)
-            return True
-        except OSError:
-            return False
+    # Version drift: terminate the old listener; SessionStart will respawn.
+    sig = signal.SIGTERM if listener_ver != my_version else signal.SIGHUP
     try:
-        os.kill(pid, signal.SIGHUP)
+        os.kill(pid, sig)
         return True
     except OSError:
         return False

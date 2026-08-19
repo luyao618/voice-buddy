@@ -70,7 +70,7 @@ def test_ensure_listener_attaches_when_already_alive(tmp_vb_dir, monkeypatch):
     # Pretend a live listener with matching version exists. The pytest process
     # stands in for it, so the ownership probe is stubbed — see test_coord.py
     # for the tests that cover ownership itself.
-    monkeypatch.setattr(coord, "_process_is_listener", lambda pid: True)
+    monkeypatch.setattr(coord, "process_ownership", lambda pid: coord.OWNED)
     coord.write_atomic(coord.listener_pid_path(), str(os.getpid()))
     coord.write_atomic(coord.listener_version_path(), voice_buddy.__version__)
 

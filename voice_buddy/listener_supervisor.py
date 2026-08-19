@@ -19,6 +19,8 @@ Hook integration is gated by sys.platform == "darwin" AND config.hotkey_enabled.
 from __future__ import annotations
 
 import logging
+import os
+import signal
 import subprocess
 import sys
 import time
@@ -66,6 +68,52 @@ def _spawn_detached_listener() -> subprocess.Popen:
     return proc
 
 
+SHUTDOWN_TIMEOUT_SECONDS = 2.0
+SHUTDOWN_POLL_INTERVAL = 0.02
+
+
+def _retire_superseded_listener() -> Optional[bool]:
+    """Terminate a verified old listener before spawning its replacement.
+
+    Called under coord.lock when the liveness check failed but a process may
+    still be holding the pidfile — the version-drift case after an upgrade.
+
+    Only signals a PID that `get_listener_pid()` certifies as ours, so a
+    recycled PID is left alone. Waits for the process to actually exit, because
+    returning early would let the new listener install its EventTap while the
+    old one still holds one.
+
+    Returns True if a listener was retired, False if it would not die, and None
+    if there was nothing to retire.
+    """
+    pid = coord.get_listener_pid()
+    if pid is None:
+        return None  # nothing verifiably ours to retire
+
+    log.info("retiring superseded listener pid=%s", pid)
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return None  # exited between the check and the signal
+    except OSError as e:
+        log.warning("could not signal superseded listener %s: %s", pid, e)
+        return False
+
+    deadline = time.monotonic() + SHUTDOWN_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        if not coord._process_alive(pid):
+            log.info("superseded listener pid=%s exited", pid)
+            return True
+        time.sleep(SHUTDOWN_POLL_INTERVAL)
+
+    # Still alive: spawning now would leave two EventTaps competing for F2.
+    log.warning(
+        "superseded listener pid=%s did not exit within %ss; not spawning a "
+        "replacement this session", pid, SHUTDOWN_TIMEOUT_SECONDS,
+    )
+    return False
+
+
 def ensure_listener_for_session(session_id: str) -> Optional[bool]:
     """Run the SessionStart spawn-or-attach protocol.
 
@@ -91,17 +139,32 @@ def ensure_listener_for_session(session_id: str) -> Optional[bool]:
             if coord.listener_alive():
                 return True
 
-            # 3. Cleanup stale artifacts.
+            # 3. Version-drift handoff, still under the same lock.
+            #
+            # listener_alive() is false here for two different reasons: no
+            # listener at all, or a live listener running an older version.
+            # In the second case the old process still owns an EventTap and,
+            # because session markers exist, its idle timer will not fire — so
+            # spawning without terminating it leaves two listeners competing
+            # for F2. Retire the old one first, and only if it is verifiably
+            # ours.
+            if _retire_superseded_listener() is False:
+                # The old listener would not die. Spawning now would leave two
+                # EventTaps fighting over F2, which is worse than one stale
+                # hotkey; the next session tries again.
+                return False
+
+            # 4. Cleanup stale artifacts.
             coord.cleanup_stale_listener_artifacts()
 
-            # 4. Spawn detached listener.
+            # 5. Spawn detached listener.
             try:
                 _spawn_detached_listener()
             except OSError as e:
                 log.error("could not spawn hotkey listener: %s", e)
                 return False
 
-            # 5. Synchronous readiness poll, ≤300ms.
+            # 6. Synchronous readiness poll, ≤300ms.
             deadline = time.monotonic() + READINESS_TIMEOUT_SECONDS
             while time.monotonic() < deadline:
                 if coord.listener_alive():
