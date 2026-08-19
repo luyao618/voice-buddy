@@ -11,6 +11,7 @@ so a payload this plugin does not understand has to degrade quietly rather than
 raise. The one deliberate exception is Stop's documented exit-2 block, which is
 how the synchronous decision contract is expressed.
 """
+import io
 import json
 import logging
 
@@ -355,10 +356,25 @@ ADVERSARIAL_EVENT_NAMES = [
 
 
 @pytest.mark.parametrize("hostile", ADVERSARIAL_EVENT_NAMES)
-def test_raw_event_name_never_reaches_the_log(hostile, caplog):
-    """The raw value must not appear in any log record, at any level."""
+def test_raw_event_name_never_reaches_the_log(hostile, caplog, monkeypatch):
+    """The raw value must not appear in any log record, at any level.
+
+    Drives `run()`, not `handle_hook_event`: the label is logged in `run()`, so
+    calling the inner function would leave the leaking line unexercised and the
+    test would pass regardless.
+    """
+    payload = json.dumps({"hook_event_name": hostile})
+    monkeypatch.setattr("sys.stdin", io.StringIO(payload))
+    # Keep run()'s basicConfig from attaching a file handler to the real
+    # config dir; caplog still captures the records.
+    monkeypatch.setattr(logging, "basicConfig", lambda **kw: None)
+
     with caplog.at_level(logging.DEBUG, logger="voice_buddy"):
-        main.handle_hook_event({"hook_event_name": hostile})
+        try:
+            main.run()
+        except SystemExit:
+            pass
+
     assert hostile not in caplog.text
     # A distinctive fragment must not survive either, so a truncated echo
     # cannot pass by being a prefix of the original.
