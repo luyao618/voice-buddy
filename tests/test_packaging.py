@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 from packaging.requirements import Requirement
+from packaging.specifiers import SpecifierSet
 
 try:  # Python 3.11+
     import tomllib
@@ -82,8 +83,62 @@ def test_running_interpreter_is_supported():
     )
 
 
-def test_requires_python_floor_is_3_10():
-    assert _manifest()["project"]["requires-python"] == ">=3.10"
+def test_requires_python_encodes_both_floor_and_ceiling():
+    """requires-python must bound the matrix on BOTH ends.
+
+    A bare ">=3.10" lets any future interpreter resolve as if it were
+    certified. 3.15 does not exist yet, so it cannot have been tested — and
+    pyobjc in particular tracks the CPython C-ABI, so a new minor is exactly
+    where this package would break. The cap makes an untested interpreter fail
+    at resolve time with a clear message instead of installing and failing
+    later at runtime.
+
+    Asserted through the specifier rather than by string equality, so an
+    equivalent-but-differently-spelled range still passes while a genuinely
+    wrong bound fails.
+    """
+    spec = SpecifierSet(_manifest()["project"]["requires-python"])
+
+    floor, ceiling = min(SUPPORTED_MINORS), max(SUPPORTED_MINORS)
+
+    # Every supported version is admitted, including both endpoints.
+    for minor in SUPPORTED_MINORS:
+        assert spec.contains(f"3.{minor}"), (
+            f"3.{minor} is in the supported matrix but requires-python "
+            f"({spec}) rejects it"
+        )
+        # Patch releases of a supported minor must be admitted too: a cap
+        # written as "<=3.14" would admit 3.14 but reject 3.14.1.
+        assert spec.contains(f"3.{minor}.7"), (
+            f"requires-python ({spec}) rejects patch releases of 3.{minor}"
+        )
+
+    # Below the floor and above the ceiling are both excluded.
+    assert not spec.contains(f"3.{floor - 1}"), (
+        f"requires-python ({spec}) admits 3.{floor - 1}, below the floor"
+    )
+    assert not spec.contains(f"3.{ceiling + 1}"), (
+        f"requires-python ({spec}) admits 3.{ceiling + 1}, which is outside "
+        f"the tested matrix {SUPPORTED_MINORS}. Add the version to "
+        f"SUPPORTED_MINORS and run the suite on it before raising the cap."
+    )
+
+
+def test_requires_python_rejects_the_next_uncertified_minor():
+    """The 3.15 rejection the review asked for, stated as install behavior.
+
+    This is what a user hits: resolving on an interpreter above the ceiling
+    fails with the same message pip prints, rather than installing a package
+    that was never run on that version.
+    """
+    spec = SpecifierSet(_manifest()["project"]["requires-python"])
+    nxt = f"3.{max(SUPPORTED_MINORS) + 1}"
+
+    assert not spec.contains(nxt)
+    assert not spec.contains(f"{nxt}.0")
+    # Guard the guard: a ceiling that also broke a supported version would
+    # make the assertion above pass for the wrong reason.
+    assert spec.contains(f"3.{max(SUPPORTED_MINORS)}")
 
 
 def test_classifiers_match_supported_matrix():
@@ -269,10 +324,15 @@ def test_regen_script_targets_the_declared_floor():
     script = (REPO_ROOT / "scripts" / "regen-constraints.sh").read_text()
     match = re.search(r"^FLOOR_MINOR=(\d+)$", script, re.MULTILINE)
     assert match, "regen-constraints.sh no longer declares FLOOR_MINOR"
-    assert int(match.group(1)) == min(SUPPORTED_MINORS)
+    declared_floor = int(match.group(1))
+    assert declared_floor == min(SUPPORTED_MINORS)
 
-    floor = _manifest()["project"]["requires-python"]
-    assert floor == f">=3.{match.group(1)}"
+    # The script's floor must be the same boundary requires-python enforces:
+    # admitted itself, and the version below it rejected. Compared by behavior
+    # rather than string equality so the ceiling can change independently.
+    spec = SpecifierSet(_manifest()["project"]["requires-python"])
+    assert spec.contains(f"3.{declared_floor}")
+    assert not spec.contains(f"3.{declared_floor - 1}")
 
 
 def test_floor_gated_transitives_are_pinned():

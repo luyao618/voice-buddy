@@ -367,12 +367,22 @@ any interpreter.
 #### Supported Python versions
 
 `3.10` – `3.14`, each verified by installing the constrained dependency set
-into a fresh virtualenv and running the full suite.
+into a fresh virtualenv and running the full suite. `requires-python =
+">=3.10,<3.15"` encodes that matrix on both ends, so anything outside it is
+rejected at resolve time rather than installing and failing later.
 
 **3.9 is not supported.** `pyobjc-core` publishes no 3.9 wheel and its source
 build fails, and `pytest` 9.x / `pip` 26.x both declare `Requires-Python
->=3.10`. `requires-python = ">=3.10"` makes installers reject 3.9 up front
-rather than failing partway through a build.
+>=3.10`. The floor makes installers reject 3.9 up front rather than failing
+partway through a build.
+
+**3.15+ is not supported yet** — it doesn't exist, so it can't have been
+tested, and `pyobjc` tracks the CPython C-ABI closely enough that a new minor
+is exactly where this package would break. To add one: append the minor to
+`SUPPORTED_MINORS` in `tests/test_packaging.py`, add its classifier, raise the
+cap, and run the matrix on it. The contract test fails if the cap and
+`SUPPORTED_MINORS` disagree, so the cap can't be raised without the
+declaration.
 
 The packaging contracts run on every supported version, including the 3.10
 floor: `tomllib` is 3.11+, so the dev extra carries a `tomli` backport for

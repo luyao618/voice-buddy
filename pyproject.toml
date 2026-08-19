@@ -14,7 +14,13 @@ keywords = ["voice", "tts", "personality", "companion"]
 # Floor is 3.10, not the 3.9 the README used to claim. Verified empirically:
 # on 3.9 pyobjc-core ships no wheel and fails to build from source, and both
 # pytest 9.x and pip 26.x declare Requires-Python >=3.10.
-requires-python = ">=3.10"
+#
+# The ceiling is deliberate too: this range is the supported matrix, and every
+# version in it was installed and run green. 3.15 does not exist yet, so it is
+# untested by definition — an open-ended ">=3.10" would let a future 3.15 and
+# its C-ABI changes resolve as if certified. Raise the cap only after adding
+# the new minor to SUPPORTED_MINORS and running the matrix on it.
+requires-python = ">=3.10,<3.15"
 
 classifiers = [
     "License :: OSI Approved :: MIT License",
