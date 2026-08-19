@@ -6,6 +6,8 @@ import re
 import sys
 from typing import Optional
 
+from voice_buddy.context import coerce_text
+
 
 # Completion signal keywords (English)
 # Use word boundaries to reduce false positives (e.g. "not done yet" still
@@ -99,6 +101,24 @@ def _should_trigger(message: str) -> bool:
     return False
 
 
+def _is_stop_hook_active(value) -> bool:
+    """Interpret the documented boolean `stop_hook_active` field.
+
+    The contract says this is `true` when Claude Code is already continuing as
+    a result of a stop hook. Raw truthiness is wrong in both directions here:
+    the JSON string "false" is truthy in Python, and 0/""/None are falsy but
+    are not the documented `true`. Only a real boolean true, or the obvious
+    string/int spellings of it, count as active.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes"}
+    if isinstance(value, int):
+        return value == 1
+    return False
+
+
 def process_stop_event(data: dict, user_config: dict = None) -> None:
     """Handle Stop event: block via exit code 2 to trigger subagent.
 
@@ -106,25 +126,36 @@ def process_stop_event(data: dict, user_config: dict = None) -> None:
     We output JSON with decision=block and style-aware additionalContext so
     Claude knows to call the voice-buddy subagent.
     """
+    if not isinstance(data, dict):
+        return
+
     if user_config is None:
         from voice_buddy.config import load_user_config
         user_config = load_user_config()
 
     # Guard: don't re-trigger if we're already inside a stop-hook retry.
     # Claude Code sets stop_hook_active=true on the second invocation to
-    # prevent infinite blocking loops.
-    if data.get("stop_hook_active"):
+    # prevent infinite blocking loops. Claude Code also caps the chain at 8
+    # consecutive blocks, but this hook must not rely on that backstop.
+    #
+    # Compared against the documented `true`, not raw truthiness: the string
+    # "false" is truthy in Python and would otherwise be read as "already
+    # active", silently disabling the voice on every turn.
+    if _is_stop_hook_active(data.get("stop_hook_active")):
         return
 
-    # Prefer last_assistant_message from hook input (reliable, no race condition).
-    # Fall back to reading transcript file (for older Claude Code versions).
-    message = data.get("last_assistant_message")
-    if not message:
-        transcript_path = data.get("transcript_path", "")
-        if not transcript_path:
+    # Prefer last_assistant_message from hook input (reliable, no race
+    # condition). The docs specifically recommend it over transcript_path for
+    # hooks acting on the just-completed turn, because the transcript file is
+    # written asynchronously and may lag. Fall back to the transcript only when
+    # the field is absent (older Claude Code versions).
+    message = coerce_text(data.get("last_assistant_message"))
+    if not message.strip():
+        transcript_path = data.get("transcript_path")
+        if not isinstance(transcript_path, str) or not transcript_path:
             return
-        message = extract_last_assistant_message(transcript_path)
-        if message is None:
+        message = extract_last_assistant_message(transcript_path) or ""
+        if not message.strip():
             return
 
     if not _should_trigger(message):

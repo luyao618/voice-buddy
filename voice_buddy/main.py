@@ -47,7 +47,21 @@ def resolve_audio_path(style: str, audio_id: str) -> Optional[str]:
 
 def handle_hook_event(data: dict) -> None:
     """Process a hook event from Claude Code."""
+    if not isinstance(data, dict):
+        logger.warning(
+            "Ignoring hook payload of type %s; expected a JSON object",
+            type(data).__name__,
+        )
+        return
+
     event_name = data.get("hook_event_name", "")
+    if not isinstance(event_name, str):
+        logger.warning(
+            "Ignoring hook payload with non-string hook_event_name (%s)",
+            type(event_name).__name__,
+        )
+        return
+
     event_key = _EVENT_NAME_MAP.get(event_name, "")
 
     # Load user config
@@ -145,14 +159,22 @@ def run() -> None:
         raw = sys.stdin.read()
         data = json.loads(raw) if raw.strip() else {}
     except Exception as e:
-        logger.debug(f"Failed to read stdin: {e}")
+        logger.warning("Failed to parse hook payload from stdin: %s", e)
         return
 
-    logger.debug(f"Hook event: {data.get('hook_event_name', 'unknown')}")
+    # `data` may be any JSON value here; handle_hook_event validates the shape.
+    event_label = (
+        data.get("hook_event_name", "unknown") if isinstance(data, dict) else "unknown"
+    )
+    logger.debug("Hook event: %s", event_label)
 
     try:
         handle_hook_event(data)
     except SystemExit:
         raise  # Let sys.exit(2) propagate for Stop hook blocking
-    except Exception as e:
-        logger.debug(f"Error handling event: {e}")
+    except Exception:
+        # Logged with a traceback at WARNING, not a bare DEBUG string: a
+        # swallowed exception here previously looked identical to "nothing to
+        # say", which hid genuine installation and payload incompatibilities.
+        # Still exits 0 so a broken voice never disrupts the user's session.
+        logger.warning("Error handling %s event", event_label, exc_info=True)
