@@ -109,7 +109,17 @@ number to an unrelated process.
    - `version handshake` must show `matched=<new version>`. A listener left
      over from the previous version is terminated and respawned rather than
      reused.
+   - The pid must differ from the one noted in step 1, and `pgrep -f
+     voice_buddy.hotkey_listener` must show exactly one process for your user.
+     Two would mean both listeners hold an EventTap and F2 behaves
+     unpredictably.
 4. Press F2 → playback stops, confirming the new listener holds the EventTap.
 5. If Python itself was upgraded or the venv recreated, expect
    `[WARN] python interpreter … DRIFT` — Accessibility is granted per
    executable path, so re-grant it to the path the doctor reports.
+
+> **Note on shutdown.** The listener blocks in `CFRunLoopRun()`, so CPython
+> only runs its SIGTERM handler when the run loop next ticks — up to 30
+> seconds later. The handoff therefore allows a short grace period and then
+> sends SIGKILL. Seeing `ignored SIGTERM; escalating to SIGKILL` in
+> `logs/hotkey-listener.log` during an upgrade is expected, not a fault.
