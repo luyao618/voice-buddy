@@ -522,18 +522,57 @@ def test_retire_waits_for_the_old_listener_to_actually_exit(tmp_vb_dir, monkeypa
         old.wait(timeout=5)
 
 
-def test_no_replacement_spawns_when_the_old_listener_will_not_die(
+def test_sigterm_escalates_to_sigkill_when_the_run_loop_defers_it(
+    tmp_vb_dir, monkeypatch
+):
+    """The real listener does not honour SIGTERM promptly.
+
+    It blocks in CFRunLoopRun(), and CPython only runs the handler when the
+    interpreter regains control — on the run loop's 30s tick. Measured on a
+    live listener: SIGTERM was still pending 2.75s later and the process only
+    exited once the tick fired. SessionStart cannot wait a full tick, so the
+    handoff escalates to SIGKILL, which the kernel delivers regardless.
+    """
+    import signal as _signal
+    monkeypatch.setattr(listener_supervisor, "SHUTDOWN_GRACE_SECONDS", 0.1)
+    coord.write_atomic(coord.listener_pid_path(), str(os.getpid()))
+    monkeypatch.setattr(coord, "process_ownership", lambda pid: coord.OWNED)
+
+    sent = []
+    real_kill = os.kill
+    alive = {"value": True}
+
+    def spy(pid, sig):
+        if sig == 0:
+            if not alive["value"]:
+                raise ProcessLookupError
+            return None
+        sent.append(sig)
+        if sig == _signal.SIGKILL:
+            alive["value"] = False  # SIGKILL cannot be deferred
+        return None
+
+    with mock.patch("os.kill", side_effect=spy):
+        assert listener_supervisor._retire_superseded_listener() is True
+
+    assert sent == [_signal.SIGTERM, _signal.SIGKILL], (
+        f"expected graceful-then-forced escalation, got {sent}"
+    )
+
+
+def test_no_replacement_spawns_when_the_old_listener_survives_sigkill(
     tmp_vb_dir, monkeypatch
 ):
     """One stale hotkey beats two listeners fighting over the EventTap."""
     monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.setattr(listener_supervisor, "_hotkey_enabled", lambda: True)
-    monkeypatch.setattr(listener_supervisor, "SHUTDOWN_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(listener_supervisor, "SHUTDOWN_GRACE_SECONDS", 0.05)
+    monkeypatch.setattr(listener_supervisor, "SHUTDOWN_KILL_TIMEOUT_SECONDS", 0.05)
     coord.write_atomic(coord.listener_pid_path(), str(os.getpid()))
     coord.write_atomic(coord.listener_version_path(), "0.0.0-old")
     monkeypatch.setattr(coord, "process_ownership", lambda pid: coord.OWNED)
 
-    # SIGTERM is swallowed, so the "old listener" never exits.
+    # Every signal is swallowed, so the "old listener" never exits.
     real_kill = os.kill
     with mock.patch("os.kill",
                     side_effect=lambda p, s: None if s != 0 else real_kill(p, s)):

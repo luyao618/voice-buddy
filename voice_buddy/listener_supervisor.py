@@ -68,8 +68,19 @@ def _spawn_detached_listener() -> subprocess.Popen:
     return proc
 
 
-SHUTDOWN_TIMEOUT_SECONDS = 2.0
-SHUTDOWN_POLL_INTERVAL = 0.02
+# The listener blocks in CFRunLoopRun(), and CPython only runs a signal
+# handler once the interpreter regains control — which happens on the run
+# loop's 30s timer tick. A SIGTERM is therefore observed up to a full tick
+# later (measured on a real listener: ~1.5s at best). SessionStart cannot wait
+# that long, so give the graceful path a short grace period and then escalate
+# to SIGKILL, which the kernel delivers without the process cooperating.
+#
+# SIGKILL is safe here: the target is verified to be our own listener, it owns
+# no user data, and its pidfile is cleaned up by the caller. Leaving it alive
+# would be worse — two EventTaps competing for F2.
+SHUTDOWN_GRACE_SECONDS = 2.0
+SHUTDOWN_KILL_TIMEOUT_SECONDS = 2.0
+SHUTDOWN_POLL_INTERVAL = 0.05
 
 
 def _retire_superseded_listener() -> Optional[bool]:
@@ -91,27 +102,35 @@ def _retire_superseded_listener() -> Optional[bool]:
         return None  # nothing verifiably ours to retire
 
     log.info("retiring superseded listener pid=%s", pid)
+    if not _signal_and_wait(pid, signal.SIGTERM, SHUTDOWN_GRACE_SECONDS):
+        # Still there: the run loop has not reached a tick. Escalate.
+        log.warning("listener pid=%s ignored SIGTERM; escalating to SIGKILL", pid)
+        if not _signal_and_wait(pid, signal.SIGKILL, SHUTDOWN_KILL_TIMEOUT_SECONDS):
+            log.error(
+                "listener pid=%s survived SIGKILL; not spawning a replacement",
+                pid,
+            )
+            return False
+    log.info("superseded listener pid=%s exited", pid)
+    return True
+
+
+def _signal_and_wait(pid: int, sig: int, timeout: float) -> bool:
+    """Send `sig` to `pid` and wait for it to exit. True if it is gone."""
     try:
-        os.kill(pid, signal.SIGTERM)
+        os.kill(pid, sig)
     except ProcessLookupError:
-        return None  # exited between the check and the signal
+        return True  # already gone
     except OSError as e:
-        log.warning("could not signal superseded listener %s: %s", pid, e)
+        log.warning("could not signal listener %s with %s: %s", pid, sig, e)
         return False
 
-    deadline = time.monotonic() + SHUTDOWN_TIMEOUT_SECONDS
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if not coord._process_alive(pid):
-            log.info("superseded listener pid=%s exited", pid)
             return True
         time.sleep(SHUTDOWN_POLL_INTERVAL)
-
-    # Still alive: spawning now would leave two EventTaps competing for F2.
-    log.warning(
-        "superseded listener pid=%s did not exit within %ss; not spawning a "
-        "replacement this session", pid, SHUTDOWN_TIMEOUT_SECONDS,
-    )
-    return False
+    return not coord._process_alive(pid)
 
 
 def ensure_listener_for_session(session_id: str) -> Optional[bool]:
