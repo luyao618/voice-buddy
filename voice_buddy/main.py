@@ -45,6 +45,25 @@ def resolve_audio_path(style: str, audio_id: str) -> Optional[str]:
     return None
 
 
+def safe_event_label(data) -> str:
+    """Return a log-safe label for a hook payload.
+
+    Only an allowlisted event name is ever echoed. `hook_event_name` is
+    attacker-influenced free text on a malformed payload — it can carry a
+    transcript path, a prompt, or a secret — and the debug log is long-lived,
+    so an unrecognized value is reduced to a fixed token plus its type. The
+    raw value never reaches the log.
+    """
+    if not isinstance(data, dict):
+        return f"unknown(non-object:{type(data).__name__})"
+    name = data.get("hook_event_name")
+    if isinstance(name, str) and name in _EVENT_NAME_MAP:
+        return name
+    if name is None:
+        return "unknown(absent)"
+    return f"unknown({type(name).__name__})"
+
+
 def handle_hook_event(data: dict) -> None:
     """Process a hook event from Claude Code."""
     if not isinstance(data, dict):
@@ -162,10 +181,9 @@ def run() -> None:
         logger.warning("Failed to parse hook payload from stdin: %s", e)
         return
 
-    # `data` may be any JSON value here; handle_hook_event validates the shape.
-    event_label = (
-        data.get("hook_event_name", "unknown") if isinstance(data, dict) else "unknown"
-    )
+    # Never log the raw event name: on a malformed payload it is arbitrary
+    # attacker-influenced text, and this log persists.
+    event_label = safe_event_label(data)
     logger.debug("Hook event: %s", event_label)
 
     try:

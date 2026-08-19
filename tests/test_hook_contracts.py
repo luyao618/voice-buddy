@@ -42,6 +42,20 @@ STOP = {**COMMON, "hook_event_name": "Stop", "stop_hook_active": False,
         "last_assistant_message": "I fixed the bug and updated the tests.",
         "background_tasks": [], "session_crons": []}
 
+# The complete documented `notification_type` matcher enum. `agent_needs_input`
+# and `agent_completed` require Claude Code v2.1.198 or later.
+NOTIFICATION_TYPES = [
+    "permission_prompt",
+    "idle_prompt",
+    "auth_success",
+    "elicitation_dialog",
+    "elicitation_url_dialog",
+    "elicitation_complete",
+    "elicitation_response",
+    "agent_needs_input",
+    "agent_completed",
+]
+
 
 # --- Valid payloads ---------------------------------------------------------
 
@@ -84,11 +98,45 @@ def test_notification_falls_back_to_title():
     assert ctx.detail == "Permission needed"
 
 
+@pytest.mark.parametrize("ntype", NOTIFICATION_TYPES)
+def test_notification_documented_types_all_speak(ntype):
+    """Every type in the current official enum still notifies.
+
+    These are the documented `notification_type` matcher values. They are
+    listed exhaustively so a schema change shows up here rather than silently
+    reducing coverage.
+    """
+    ctx = analyze_context({**NOTIFICATION, "notification_type": ntype})
+    assert ctx is not None and ctx.event == "notification"
+
+
+def test_notification_type_fixtures_match_documented_enum():
+    """Guard the fixture list itself against drift.
+
+    An earlier revision of this file listed `idle_timeout` and
+    `waiting_for_input`, neither of which exists in the schema — the
+    parametrized test passed anyway, so it looked like enum coverage while
+    testing nothing real. Pinning the count and membership makes that failure
+    mode visible.
+    """
+    assert len(NOTIFICATION_TYPES) == 9
+    assert "permission_prompt" in NOTIFICATION_TYPES
+    assert "agent_completed" in NOTIFICATION_TYPES
+    # Values that never existed must not creep back in.
+    assert "idle_timeout" not in NOTIFICATION_TYPES
+    assert "waiting_for_input" not in NOTIFICATION_TYPES
+
+
 @pytest.mark.parametrize("ntype", [
-    "permission_prompt", "idle_timeout", "waiting_for_input", "some_future_type",
+    "some_future_type", "", None, 123, {"a": 1},
 ])
-def test_notification_variants_all_speak(ntype):
-    """notification_type is informational; every variant still notifies."""
+def test_notification_unknown_or_malformed_type_still_speaks(ntype):
+    """Forward compatibility, kept separate from documented-enum coverage.
+
+    `notification_type` is informational here — Voice Buddy speaks on every
+    notification — so an unrecognized or malformed value must not suppress or
+    crash the voice.
+    """
     ctx = analyze_context({**NOTIFICATION, "notification_type": ntype})
     assert ctx is not None and ctx.event == "notification"
 
@@ -289,3 +337,71 @@ def test_non_string_event_name_is_logged_as_a_warning(caplog):
     with caplog.at_level(logging.DEBUG, logger="voice_buddy"):
         main.handle_hook_event({"hook_event_name": 42})
     assert any(r.levelno >= logging.WARNING for r in caplog.records)
+
+
+# --- Adversarial log hygiene ------------------------------------------------
+# `hook_event_name` is free text on a malformed payload. Treat it as hostile:
+# it can carry a transcript path, a prompt, or a credential, and the debug log
+# outlives the session.
+
+ADVERSARIAL_EVENT_NAMES = [
+    "/Users/victim/.claude/projects/acme/secret-transcript.jsonl",
+    "Stop\nUSER PROMPT: my aws key is AKIAIOSFODNN7EXAMPLE",
+    "SessionStart; password=hunter2",
+    "".join(["A"] * 5000),
+    "../../etc/passwd",
+    "%s %r %(x)s {0} {}",  # format-string injection into the log call
+]
+
+
+@pytest.mark.parametrize("hostile", ADVERSARIAL_EVENT_NAMES)
+def test_raw_event_name_never_reaches_the_log(hostile, caplog):
+    """The raw value must not appear in any log record, at any level."""
+    with caplog.at_level(logging.DEBUG, logger="voice_buddy"):
+        main.handle_hook_event({"hook_event_name": hostile})
+    assert hostile not in caplog.text
+    # A distinctive fragment must not survive either, so a truncated echo
+    # cannot pass by being a prefix of the original.
+    for fragment in ("secret-transcript", "AKIAIOSFODNN7EXAMPLE", "hunter2",
+                     "etc/passwd"):
+        if fragment in hostile:
+            assert fragment not in caplog.text
+
+
+@pytest.mark.parametrize("hostile", ADVERSARIAL_EVENT_NAMES)
+def test_safe_event_label_reduces_unknown_names_to_a_fixed_token(hostile):
+    label = main.safe_event_label({"hook_event_name": hostile})
+    assert hostile not in label
+    assert label.startswith("unknown")
+
+
+@pytest.mark.parametrize("name", ["SessionStart", "SessionEnd", "Notification", "Stop"])
+def test_safe_event_label_passes_through_allowlisted_names(name):
+    """Known event names stay legible; only unrecognized values are reduced."""
+    assert main.safe_event_label({"hook_event_name": name}) == name
+
+
+def test_safe_event_label_describes_shape_without_echoing_values():
+    assert main.safe_event_label([1, 2, 3]).startswith("unknown(non-object")
+    assert main.safe_event_label({"hook_event_name": None}) == "unknown(absent)"
+    assert main.safe_event_label({"hook_event_name": 42}) == "unknown(int)"
+    # A secret in a *value* of a non-object payload must not surface either.
+    assert "hunter2" not in main.safe_event_label(["hunter2"])
+
+
+def test_sensitive_payload_fields_never_reach_the_log(caplog):
+    """Transcript path, prompt text and message body are all off-limits."""
+    secrets = {
+        "transcript_path": "/Users/victim/.claude/projects/SECRET_PATH.jsonl",
+        "last_assistant_message": "SECRET_MESSAGE hunter2",
+        "message": "SECRET_NOTIFICATION hunter2",
+        "cwd": "/Users/victim/SECRET_CWD",
+    }
+    with caplog.at_level(logging.DEBUG, logger="voice_buddy"):
+        for event in ("Stop", "Notification", "SessionStart", "SessionEnd"):
+            try:
+                main.handle_hook_event({"hook_event_name": event, **secrets})
+            except SystemExit:
+                pass
+    for value in secrets.values():
+        assert value not in caplog.text
