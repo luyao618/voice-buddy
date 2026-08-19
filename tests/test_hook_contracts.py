@@ -304,12 +304,20 @@ def test_logs_do_not_leak_transcript_or_message_content(caplog):
     The hook sees the assistant's final message, which can contain anything the
     user was working on. It is written to a long-lived file, so the event name
     is loggable but the content is not.
+
+    SystemExit is expected here: with voice enabled this payload trips the
+    documented Stop block (exit 2). Catching it keeps the assertion about log
+    contents rather than about whether the developer's own config happens to
+    have the voice switched on.
     """
     secret = "SUPERSECRETVALUE_hunter2"
     with caplog.at_level(logging.DEBUG, logger="voice_buddy"):
-        main.handle_hook_event({
-            **STOP, "last_assistant_message": f"I fixed the bug: {secret}",
-        })
+        try:
+            main.handle_hook_event({
+                **STOP, "last_assistant_message": f"I fixed the bug: {secret}",
+            })
+        except SystemExit:
+            pass
     assert secret not in caplog.text
 
 
