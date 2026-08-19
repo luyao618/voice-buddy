@@ -38,8 +38,18 @@ def hook_env(tmp_path):
     }))
     env = dict(os.environ)
     env["HOME"] = str(home)
-    env["PYTHONPATH"] = str(REPO_ROOT)
+    # tests/stubs comes first so its offline `edge_tts` shadows the real
+    # package: these are subprocesses, so the backend cannot be patched
+    # in-process, and without the stub the Notification cases make a live
+    # network call and fail on a machine that is offline or has no edge-tts.
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(REPO_ROOT / "tests" / "stubs"), str(REPO_ROOT)])
     env.pop("XDG_CONFIG_HOME", None)
+    # Silent stand-in for the platform audio player, for the same reason: real
+    # playback is not what these assertions are about, and a missing `afplay`
+    # would otherwise print to stderr.
+    env["PATH"] = os.pathsep.join(
+        [str(REPO_ROOT / "tests" / "stubs" / "bin"), env.get("PATH", "")])
     return env
 
 

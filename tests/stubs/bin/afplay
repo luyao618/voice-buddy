@@ -1,0 +1,6 @@
+#!/bin/sh
+# Stand-in for the platform audio player (afplay/paplay/...) in the subprocess
+# entry-point tests. Accepts any arguments, plays nothing, says nothing, and
+# exits 0 — so "did the hook stay quiet?" assertions measure the hook rather
+# than whether this machine can play audio.
+exit 0
