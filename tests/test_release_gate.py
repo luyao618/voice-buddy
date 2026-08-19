@@ -241,10 +241,23 @@ def test_marketplace_entry_names_the_repository():
 
 
 def test_every_style_has_persona_template_agent_and_audio():
-    """A style missing any one of these fails only at runtime, per event."""
-    styles = [p.stem for p in (REPO_ROOT / "personas").glob("*.json")]
-    assert styles, "no personas found"
-    for style in styles:
+    """A style missing any one of these fails only at runtime, per event.
+
+    The expected set is fixed rather than derived from `personas/`: deriving it
+    would make a deleted persona shrink the list instead of failing, so the
+    test would pass while the style silently vanished from the product.
+    The README advertises these seven.
+    """
+    expected = {
+        "cute-girl", "elegant-lady", "warm-boy",
+        "secretary", "steward", "cyber-girl", "kawaii",
+    }
+    found = {p.stem for p in (REPO_ROOT / "personas").glob("*.json")}
+    assert found == expected, f"persona set changed: {found ^ expected}"
+
+    for style in sorted(expected):
+        assert (REPO_ROOT / "personas" / f"{style}.json").exists(), \
+            f"{style}: missing persona"
         assert (REPO_ROOT / "templates" / f"{style}.json").exists(), \
             f"{style}: missing template"
         assert (REPO_ROOT / "agents" / f"voice-buddy-{style}.md").exists(), \
