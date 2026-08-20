@@ -39,15 +39,35 @@ SECRET_PATTERNS = [
 
 # Any user's home directory, not just the machine running the scan. A path
 # baked in by one developer must fail on every other developer's checkout.
-HOME_PATH_PATTERN = re.compile(r"(?:/Users/|/home/|C:\\\\Users\\\\)[A-Za-z0-9._-]+")
+#
+# The Windows branch accepts any drive letter, either case, and one *or* two
+# backslashes: a path reaches the scanner either as it sits on disk
+# (`C:\Users\alice`) or doubled by Python source escaping (`C:\\Users\\alice`).
+# Matching only the doubled form let every ordinary Windows path through.
+HOME_PATH_PATTERN = re.compile(
+    r"(?:/Users/|/home/|[A-Za-z]:\\{1,2}Users\\{1,2})[A-Za-z0-9._-]+"
+)
+
+
+def _normalize(path: str) -> str:
+    r"""Collapse backslash runs so one allowlist entry covers both spellings.
+
+    `C:\Users\test` and `C:\\Users\\test` name the same directory — the second
+    is just the first as it appears inside a Python string literal. Folding
+    them together keeps a fixture from being half-declared, where the on-disk
+    form is excused and the escaped form still trips the gate.
+    """
+    return re.sub(r"\\{2,}", r"\\", path)
+
 
 # Synthetic values that tests deliberately contain. These are the fixtures that
 # *prove* real secrets are not leaked, so flagging them would force the checks
 # to be deleted. Anything not on this list is treated as a real finding.
 #
 # Each entry is a literal, not a pattern: an entry broad enough to match a real
-# secret would silently disarm the scanner.
-ALLOWED_SYNTHETIC = {
+# secret would silently disarm the scanner. Entries are compared for *equality*
+# against the whole matched path segment — see `_is_allowed`.
+ALLOWED_SYNTHETIC = {_normalize(p) for p in {
     # Log-hygiene fixtures: hostile inputs asserted never to reach the log.
     "/Users/victim",
     # Documented payload examples transcribed from the Claude Code hook schema.
@@ -55,8 +75,7 @@ ALLOWED_SYNTHETIC = {
     "/Users/...",
     # Windows config-path fixture in tests/test_config.py.
     r"C:\Users\test",
-    r"C:\\Users\\test",
-}
+}}
 
 # AWS's own published example key, used in the adversarial log-hygiene test to
 # prove a credential-shaped prompt never reaches the debug log. It is the
@@ -66,7 +85,16 @@ ALLOWED_SECRET_LITERALS = {"AKIAIOSFODNN7EXAMPLE"}
 
 
 def _is_allowed(match: str) -> bool:
-    return any(match.startswith(a) for a in ALLOWED_SYNTHETIC)
+    r"""True only when the match is exactly a declared fixture path.
+
+    Equality, not `startswith`. The prefix form excused every path that merely
+    *began* with a fixture name: `/Users/u` waved through `/Users/ubuntu` and
+    `/Users/user`, and `/Users/victim` waved through `/Users/victim-corp`.
+    Since `HOME_PATH_PATTERN` stops at the end of the user-name segment, the
+    match handed here is already the whole segment — so comparing it whole is
+    both correct and as narrow as the comment above `ALLOWED_SYNTHETIC` claims.
+    """
+    return _normalize(match) in ALLOWED_SYNTHETIC
 
 
 def scan_text(name: str, text: str) -> list[str]:

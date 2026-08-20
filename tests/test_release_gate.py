@@ -290,6 +290,84 @@ def test_artifact_scanner_allows_declared_synthetic_fixtures():
         )
 
 
+def test_artifact_scanner_flags_windows_home_paths_in_either_spelling():
+    r"""A Windows developer path must fail the gate however it is spelled.
+
+    The pattern once required *two* backslashes, so it saw such a path only
+    after Python source escaping doubled it. The single-backslash form — what
+    a path looks like on disk, in a log, or in a config file — matched
+    nothing, and the wheel shipped with the gate reporting clean. Drive letter
+    and case are also free: nothing makes one drive more revealing than
+    another.
+
+    The paths themselves are assembled below rather than written out: this
+    file ships in the sdist and is scanned by the very gate under test.
+    """
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import scan_artifacts
+
+    # Assembled at runtime: this file ships in the sdist and is scanned by the
+    # gate, so a literal foreign home path here would fail the clean-tree test.
+    # The separator is split from "Users" for the same reason — with the two
+    # joined, the source itself reads as a Windows home path.
+    bs = chr(92)
+    users = "Users"
+    user = "alice"
+    variants = [
+        ("single backslash", f"C:{bs}{users}{bs}{user}"),
+        ("double backslash", f"C:{bs*2}{users}{bs*2}{user}"),
+        ("lowercase drive", f"c:{bs}{users}{bs}{user}"),
+        ("other drive letter", f"D:{bs}{users}{bs}{user}"),
+    ]
+    for label, path in variants:
+        findings = scan_artifacts.scan_text("f.py", f"CONFIG = {path}")
+        assert any("developer-home-path" in f for f in findings), (
+            f"scanner missed a Windows home path ({label}): {path!r}"
+        )
+
+
+def test_allowlist_does_not_excuse_paths_that_merely_share_a_prefix():
+    """An allowlisted fixture must excuse itself and nothing longer.
+
+    Matching was `startswith`, so every declared fixture opened a family of
+    real paths: the one-letter payload fixture excused any home starting with
+    that letter, the log-hygiene fixture excused any name extending it, and
+    the Windows fixture excused longer user names on the same drive. Each of
+    those is a genuine developer home the release gate exists to catch.
+
+    As above, the paths are built at runtime so this file stays clean under
+    its own scanner.
+    """
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import scan_artifacts
+
+    # Split at the segment boundary for the same reason as the test above:
+    # written whole, these lines would be real home paths in a shipped file.
+    bs = chr(92)
+    u = "/Users/"
+    collisions = [
+        u + "ubuntu",
+        u + "user",
+        u + "umar",
+        u + "victim" + "-corp",
+        u + "victim" + "ize",
+        f"C:{bs}" + "Users" + f"{bs}" + "test" + "user",
+    ]
+    for path in collisions:
+        findings = scan_artifacts.scan_text("f.py", f"HOME = {path}")
+        assert any("developer-home-path" in f for f in findings), (
+            f"allowlist prefix leaked a real developer path: {path!r}"
+        )
+
+    # The declared fixtures themselves must still pass, or the tests that
+    # prove secrets don't leak would have to be deleted to get a green gate.
+    fixtures = [u + "victim", u + "u", f"C:{bs}" + "Users" + f"{bs}" + "test"]
+    for path in fixtures:
+        assert scan_artifacts.scan_text("t.py", f'P = "{path}"') == [], (
+            f"tightening the allowlist broke a declared fixture: {path!r}"
+        )
+
+
 def test_a_clean_tree_passes_its_own_artifact_scan():
     """The gate must not fail on the repository it is meant to protect.
 
