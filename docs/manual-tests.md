@@ -103,7 +103,15 @@ number to an unrelated process.
 
 1. With a session running and F2 working, reinstall or upgrade the plugin
    (`/plugin uninstall voice-buddy` then `/plugin install voice-buddy`, or
-   `claude plugin update voice-buddy`).
+   refresh the source and update):
+
+       claude plugin marketplace update voice-buddy-marketplace
+       claude plugin update voice-buddy@voice-buddy-marketplace
+
+   `update` is the one command that needs the fully-qualified
+   `voice-buddy@voice-buddy-marketplace`; the bare name fails with
+   `Plugin "voice-buddy" not found`. `install` and `uninstall` resolve the
+   bare name fine, which is why they are written without it above.
 2. Start a new session.
 3. Run `voice-buddy hotkey-doctor --non-interactive`.
    - `version handshake` must show `matched=<new version>`. A listener left

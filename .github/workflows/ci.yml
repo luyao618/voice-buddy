@@ -1,0 +1,228 @@
+name: CI
+
+# Maintenance gate for the plugin and the Python package. Runs on every push
+# and pull request, and weekly so dependency drift surfaces without a commit.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: py${{ matrix.python }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # The full supported range on macOS, where the hotkey lives. Linux
+        # covers the "no pyobjc, hooks still work" path at the ends of the
+        # range.
+        #
+        # Windows is deliberately absent. 32 of the existing tests assume POSIX
+        # primitives — `ps` for process ownership, `flock` for coord.lock, and
+        # `/`-separated config paths — and the product has no Windows hotkey
+        # feature to exercise. Adding the runner surfaced those 32 failures
+        # without finding a real defect, so the honest gate is to state the
+        # supported platforms rather than to run a suite that cannot pass.
+        # `test_supervisor_is_a_no_op_off_darwin` already covers win32 as a
+        # simulated platform on every runner.
+        os: [macos-latest]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        include:
+          - os: ubuntu-latest
+            python: "3.10"
+          - os: ubuntu-latest
+            python: "3.14"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install with the verified pins
+        # -c constraints.txt is the point: it proves the committed lock
+        # actually installs, on every version we claim to support.
+        #
+        # setuptools is upgraded because the runner image ships a version
+        # carrying PYSEC-2026-3447, which the blocking advisory gate reports.
+        # It is installer plumbing, not a dependency of ours, so it is not in
+        # constraints.txt — but it is present in the environment pip-audit
+        # scans, so it has to be current.
+        run: |
+          python -m pip install --upgrade pip 'setuptools>=83' wheel
+          python -m pip install -c constraints.txt -e ".[dev]"
+
+      - name: Show resolved versions
+        run: python -m pip list
+
+      - name: Run tests
+        # An isolated HOME keeps the suite off the runner's real config. A test
+        # once passed only because the developer's voice setting was off.
+        shell: bash
+        run: |
+          export HOME="${{ runner.temp }}/vb-home"
+          mkdir -p "$HOME"
+          python -m pytest tests/ -v
+
+      - name: Dependency advisory check
+        # Blocking. This is the release gate, and the checklist requires "no
+        # known vulnerabilities" — a job that reports a CVE and still goes
+        # green cannot enforce that.
+        #
+        # Advisory data does change without our code changing, so a fresh CVE
+        # can fail an unrelated PR. That is the intended trade: the fix is to
+        # bump the dependency, or to record a reviewed exception in
+        # `.pip-audit-ignore` with a rationale. Nothing is waived silently.
+        run: |
+          set -euo pipefail
+          # `|| true`: grep exits 1 when the file holds only comments, which is
+          # the normal state, and `set -e` would abort the step on that alone.
+          IGNORES=$(grep -vE '^[[:space:]]*(#|$)' .pip-audit-ignore \
+                    | sed 's/^/--ignore-vuln /' | tr '\n' ' ' || true)
+          if [ -n "${IGNORES// /}" ]; then
+            echo "Applying reviewed exceptions: $IGNORES"
+          else
+            echo "No advisory exceptions in effect."
+          fi
+          # shellcheck disable=SC2086
+          python -m pip_audit --progress-spinner off $IGNORES
+
+  plugin-validation:
+    name: plugin manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Validate both manifests explicitly
+        # `claude plugin validate .` only checks marketplace.json when both
+        # files exist — it silently skips plugin.json. Each path is passed on
+        # its own so neither can go unvalidated.
+        run: |
+          claude plugin validate .claude-plugin/plugin.json --strict
+          claude plugin validate .claude-plugin/marketplace.json --strict
+
+      - name: Assert the component inventory is intact
+        run: |
+          set -euo pipefail
+          test -f skills/voice-buddy/SKILL.md
+          test "$(ls agents/voice-buddy-*.md | wc -l)" -eq 7
+          python3 -c "
+          import json
+          hooks = json.load(open('hooks/hooks.json'))['hooks']
+          expected = {'SessionStart', 'SessionEnd', 'Notification', 'Stop'}
+          assert set(hooks) == expected, f'hook drift: {set(hooks)} != {expected}'
+          for event, groups in hooks.items():
+              for group in groups:
+                  for hook in group['hooks']:
+                      assert hook['timeout'] <= 60, f'{event}: timeout looks like ms'
+          print('hooks OK')
+          "
+
+  packaging:
+    name: clean install smoke test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build a wheel and an sdist
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+
+      - name: Artifacts carry no caches, local paths, or credentials
+        # Unpacks each archive and scans the *contents*. Checking member names
+        # alone let a secret embedded in a shipped source file through: an AWS
+        # key, a GitHub token and a foreign developer's home path all reached
+        # the wheel while the old check reported "clean".
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import pathlib, re, sys, tarfile, zipfile
+
+          bad = []
+          for path in pathlib.Path("dist").iterdir():
+              names = (zipfile.ZipFile(path).namelist() if path.suffix == ".whl"
+                       else tarfile.open(path).getnames())
+              for name in names:
+                  if "__pycache__" in name or name.endswith((".pyc", ".pyo")):
+                      bad.append(f"{path.name}: {name}")
+                  if re.search(r"(^|/)(\.venv|\.git|node_modules)(/|$)", name):
+                      bad.append(f"{path.name}: {name}")
+          if bad:
+              sys.exit("build artifacts contain caches or vendored dirs:\n" +
+                       "\n".join(bad))
+          print("artifact member names clean")
+          PY
+          python scripts/scan_artifacts.py dist
+
+      - name: Install the wheel into a clean environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/clean
+          /tmp/clean/bin/python -m pip install --upgrade pip
+          /tmp/clean/bin/python -m pip install dist/*.whl
+          /tmp/clean/bin/python -c "import voice_buddy; print(voice_buddy.__version__)"
+          /tmp/clean/bin/voice-buddy config >/dev/null
+          echo "console script runs"
+
+      - name: Hooks run with pyobjc absent
+        # Linux and Windows installs must not need Quartz; the hook has to exit
+        # 0 rather than surface a failure to the user.
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export HOME="${{ runner.temp }}/vb-home"
+          mkdir -p "$HOME/.config/voice-buddy"
+          for event in SessionStart SessionEnd Notification; do
+            echo "{\"hook_event_name\":\"$event\"}" \
+              | PYTHONPATH="$PWD" /tmp/clean/bin/python -m voice_buddy
+            echo "  $event -> exit $?"
+          done
+
+  install-from-source:
+    name: install from a pristine clone
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"   # the floor, where constraints are generated
+
+      - name: Constrained install from the checkout
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -c constraints.txt .
+          python -c "import voice_buddy; print(voice_buddy.__version__)"
+
+      - name: constraints.txt is a closed, fully-pinned set
+        run: |
+          python -m pip install -c constraints.txt -e ".[dev]"
+          python -m pytest tests/test_packaging.py -v

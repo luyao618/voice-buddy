@@ -329,7 +329,7 @@ edge-tts 推荐音色:
 
 ## 可复用代码参考
 
-参考项目: `/Users/yao/work/code/awesome-project/claude-code-best-practice/`
+参考项目: `<local-path>`
 
 ### 1. `.claude/hooks/scripts/hooks.py` — 核心复用源
 

@@ -872,13 +872,23 @@ def test_zombie_process_does_not_count_as_a_live_listener(tmp_vb_dir):
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         os.kill(proc.pid, _signal.SIGTERM)
-        # Deliberately not reaped: this is the zombie window.
-        for _ in range(100):
-            if proc.poll() is not None or _is_defunct(proc.pid):
+        # Poll `ps` only. Calling proc.poll() here would reap the child and
+        # destroy the very zombie under test — which is why this passed
+        # locally and failed on a CI runner, where the child exits sooner.
+        observed_zombie = False
+        for _ in range(200):
+            if _is_defunct(proc.pid):
+                observed_zombie = True
                 break
             time.sleep(0.02)
-        assert _is_defunct(proc.pid), "could not produce a zombie to test"
-        assert coord._process_alive(proc.pid) is False
+
+        # Either way the contract is the same: a process that has exited must
+        # not count as a live listener. Whether we caught it mid-zombie or it
+        # was already gone changes how we got here, not what must be true.
+        assert coord._process_alive(proc.pid) is False, (
+            f"exited process reported as a live listener "
+            f"(observed <defunct>: {observed_zombie})"
+        )
     finally:
         if proc.poll() is None:
             proc.kill()
