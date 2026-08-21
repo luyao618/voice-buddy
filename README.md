@@ -231,7 +231,6 @@ Expected (interactive mode will ask you to press F2):
 [OK  ] python interpreter
 [OK  ] pyobjc importable
 [OK  ] Accessibility granted
-[OK  ] EventTap reachability
 [OK  ] F-key fn-mode          F2 keydown observed
 [OK  ] coord.lock writable
 [OK  ] listener liveness      pid=...
@@ -656,7 +655,6 @@ voice-buddy hotkey-doctor
 [OK  ] python interpreter
 [OK  ] pyobjc importable
 [OK  ] Accessibility granted
-[OK  ] EventTap reachability
 [OK  ] F-key fn-mode          F2 keydown observed
 [OK  ] coord.lock writable
 [OK  ] listener liveness      pid=...

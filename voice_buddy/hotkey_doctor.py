@@ -1,7 +1,7 @@
 """Diagnostic CLI for the hotkey-stop feature.
 
-Implements plan §6: 10 checks producing a fixed-column table or JSON.
-The interactive F2-press check (#5) is the only one that genuinely validates
+Implements plan §6 checks as a fixed-column table or JSON. The interactive
+F2-press check is the only one that genuinely validates
 the user's "Use F1, F2, etc. as standard function keys" preference;
 synthetic CGEvents bypass the fn-key remap layer.
 """
@@ -90,16 +90,6 @@ def check_accessibility_granted() -> Dict[str, str]:
         return _row("Accessibility granted", FAIL, str(e))
 
 
-def check_eventtap_reachability() -> Dict[str, str]:
-    """Reachability self-test. Does NOT validate fn-key preference (see #5)."""
-    if sys.platform != "darwin":
-        return _row("EventTap reachability", SKIP, "non-darwin")
-    return _row(
-        "EventTap reachability", OK,
-        "(synthetic-event self-test; does NOT validate fn-key preference — see check #5)",
-    )
-
-
 def check_fkey_mode_interactive(timeout_seconds: int = 10) -> Dict[str, str]:
     """The only check that genuinely validates the fn-key keyboard preference."""
     if sys.platform != "darwin":
@@ -169,6 +159,8 @@ def check_fkey_mode_interactive(timeout_seconds: int = 10) -> Dict[str, str]:
 
 
 def check_fkey_mode_skipped() -> Dict[str, str]:
+    if sys.platform != "darwin":
+        return _row("F-key fn-mode", SKIP, "non-darwin")
     return _row(
         "F-key fn-mode", WARN,
         "skipped (--non-interactive); rerun without --non-interactive to verify",
@@ -247,7 +239,6 @@ def run_doctor(non_interactive: bool = False, as_json: bool = False) -> int:
     rows.append(check_python_interpreter())
     rows.append(check_pyobjc_importable())
     rows.append(check_accessibility_granted())
-    rows.append(check_eventtap_reachability())
     if non_interactive:
         rows.append(check_fkey_mode_skipped())
     else:
