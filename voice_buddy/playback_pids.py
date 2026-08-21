@@ -1,16 +1,11 @@
-"""Tracks PIDs of currently-playing audio subprocesses.
+"""Track identities of currently-playing audio subprocesses.
 
-Concurrency model (per plan §4):
-  - add(pid):    O_APPEND atomic write of "<pid>\\n" (no lock; <PIPE_BUF on Darwin)
-  - snapshot():  read file, filter via os.kill(pid, 0); returns live PIDs only
-  - kill_all():  flock(playback_pids.lock) LOCK_EX -> snapshot -> SIGTERM each ->
-                 truncate(0); returns count killed
-  - compact():   flock(playback_pids.lock) LOCK_EX -> rewrite tmp file with live
-                 PIDs only -> atomic rename
-  - remove():    NO-OP at natural process exit (snapshot filter handles it)
+Every mutation uses ``playback_pids.lock``. Registry rows pair a PID with the
+process start time returned by :func:`voice_buddy.coord.process_identity`; a
+bare PID is never enough authority to signal because the kernel may recycle it.
 
-This eliminates the rewrite-vs-kill_all race by collapsing read-modify-write
-to a single lock owner, while keeping add() lock-free on the hot playback path.
+Legacy bare-PID rows and malformed rows are discarded on the next compaction or
+stop operation without being signaled.
 """
 
 from __future__ import annotations
@@ -21,6 +16,7 @@ import os
 import signal
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
@@ -29,88 +25,23 @@ if sys.platform != "win32":
 else:
     fcntl = None  # type: ignore[assignment]
 
-from voice_buddy.coord import vb_dir
+from voice_buddy import coord
 
 logger = logging.getLogger(__name__)
 
 
 def _pids_path() -> Path:
-    return vb_dir() / "playback_pids"
+    return coord.vb_dir() / "playback_pids"
 
 
 def _lock_path() -> Path:
-    return vb_dir() / "playback_pids.lock"
+    return coord.vb_dir() / "playback_pids.lock"
 
 
-# --- Hot path: lock-free add -----------------------------------------------
-
-def add(pid: int) -> None:
-    """Append a PID to the playback set. Lock-free (O_APPEND atomic).
-
-    Failure to record the PID must NOT propagate; the audio still plays.
-    """
-    if not isinstance(pid, int) or pid <= 0:
-        return
-    line = f"{pid}\n".encode("ascii")
-    try:
-        path = _pids_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
-        try:
-            os.write(fd, line)
-        finally:
-            os.close(fd)
-    except OSError as e:
-        logger.debug("playback_pids.add(%d) failed: %s", pid, e)
-
-
-# --- Snapshot ---------------------------------------------------------------
-
-def _process_alive(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True  # exists but not ours
-    except OSError:
-        return False
-
-
-def _read_all_pids() -> List[int]:
-    """Read all PIDs from disk (no liveness filtering)."""
-    try:
-        text = _pids_path().read_text(encoding="ascii")
-    except FileNotFoundError:
-        return []
-    except OSError:
-        return []
-    out: List[int] = []
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            out.append(int(line))
-        except ValueError:
-            continue
-    return out
-
-
-def snapshot() -> List[int]:
-    """Return live PIDs currently in the file (deduplicated, ordered)."""
-    seen = set()
-    out: List[int] = []
-    for pid in _read_all_pids():
-        if pid in seen:
-            continue
-        seen.add(pid)
-        if _process_alive(pid):
-            out.append(pid)
-    return out
+@dataclass(frozen=True)
+class _Entry:
+    pid: int
+    identity: str
 
 
 # --- Lock helper ------------------------------------------------------------
@@ -121,7 +52,8 @@ class _LockCtx:
 
     def __enter__(self) -> "_LockCtx":
         if fcntl is None:
-            # Windows: no flock support, proceed without locking.
+            # The hotkey is macOS-only. Keep imports safe on Windows, where
+            # process identity is unavailable and add() therefore records none.
             return self
         path = _lock_path()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -142,65 +74,146 @@ class _LockCtx:
             pass
 
 
-# --- kill_all + compact -----------------------------------------------------
+# --- Registration -----------------------------------------------------------
+
+def add(pid: int) -> None:
+    """Register a playback process using its stable process identity.
+
+    Failure to identify or record the process must not break audio playback.
+    """
+    if not isinstance(pid, int) or pid <= 0:
+        return
+    identity = coord.process_identity(pid)
+    if identity is None:
+        logger.debug("playback_pids.add(%d): identity unavailable", pid)
+        return
+    line = f"{pid}\t{identity}\n"
+    try:
+        with _LockCtx():
+            path = _pids_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(line)
+    except OSError as e:
+        logger.debug("playback_pids.add(%d) failed: %s", pid, e)
+
+
+# --- Registry I/O -----------------------------------------------------------
+
+def _read_entries() -> List[_Entry]:
+    """Read valid identity-bearing rows; legacy bare PIDs are fail-closed."""
+    try:
+        text = _pids_path().read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return []
+    out: List[_Entry] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        fields = line.split("\t", 1)
+        if len(fields) != 2:
+            logger.debug("discarding legacy or malformed playback row")
+            continue
+        try:
+            pid = int(fields[0])
+        except ValueError:
+            continue
+        identity = fields[1].strip()
+        if pid > 0 and identity:
+            out.append(_Entry(pid, identity))
+    return out
+
+
+def _write_entries(entries: List[_Entry]) -> None:
+    """Atomically replace the registry with ``entries``. Caller holds the lock."""
+    path = _pids_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(
+        prefix="playback_pids.", suffix=".tmp", dir=str(path.parent)
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            for entry in entries:
+                f.write(f"{entry.pid}\t{entry.identity}\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _entry_is_current(entry: _Entry) -> bool:
+    """Return whether the row still names the same live, non-zombie process."""
+    if not coord._process_alive(entry.pid):
+        return False
+    return coord.process_identity(entry.pid) == entry.identity
+
+
+def _current_entries() -> List[_Entry]:
+    seen = set()
+    out = []
+    for entry in _read_entries():
+        key = (entry.pid, entry.identity)
+        if key in seen:
+            continue
+        seen.add(key)
+        if _entry_is_current(entry):
+            out.append(entry)
+    return out
+
+
+def snapshot() -> List[int]:
+    """Return PIDs whose stored identity still matches, deduplicated in order."""
+    return [entry.pid for entry in _current_entries()]
 
 def kill_all(sig: int = signal.SIGTERM) -> int:
-    """SIGTERM every live PID and truncate the file. Returns count killed.
+    """Signal every verified playback process and return the delivered count.
 
-    Held under playback_pids.lock so concurrent kill_all/compact are serialized.
-    add() is unaffected (different lock; O_APPEND atomic).
+    Invalid, dead, recycled, and legacy entries are discarded without signaling.
+    Entries kept because of an unexpected signal error remain available to retry.
     """
     killed = 0
     with _LockCtx():
-        live = snapshot()
-        for pid in live:
+        remaining = []
+        for entry in _current_entries():
+            # Revalidate immediately before the non-zero signal.
+            if not _entry_is_current(entry):
+                continue
             try:
-                os.kill(pid, sig)
+                os.kill(entry.pid, sig)
                 killed += 1
             except ProcessLookupError:
                 continue
             except PermissionError:
+                remaining.append(entry)
                 continue
             except OSError as e:
                 if e.errno not in (errno.ESRCH, errno.EPERM):
-                    logger.debug("kill_all: kill(%d) failed: %s", pid, e)
-        # Truncate file (we just signaled all live PIDs; new add()s after this
-        # point will append and be tracked normally).
+                    logger.debug(
+                        "kill_all: kill(%d) failed: %s", entry.pid, e
+                    )
+                remaining.append(entry)
         try:
-            with open(_pids_path(), "w", encoding="ascii") as f:
-                f.truncate(0)
-        except FileNotFoundError:
-            pass
+            _write_entries(remaining)
         except OSError as e:
-            logger.debug("kill_all: truncate failed: %s", e)
+            logger.debug("kill_all: registry rewrite failed: %s", e)
     return killed
 
 
 def compact() -> int:
-    """Rewrite the file containing only live PIDs. Returns count of live PIDs.
+    """Rewrite the registry with current identity-bearing entries only.
 
     Trigger: every 60s OR when file exceeds 64 lines (caller's discretion).
-    Atomic rewrite under the same lock.
     """
     with _LockCtx():
-        live = snapshot()
-        path = _pids_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(prefix="playback_pids.", suffix=".tmp", dir=str(path.parent))
-        try:
-            with os.fdopen(fd, "w", encoding="ascii") as f:
-                for pid in live:
-                    f.write(f"{pid}\n")
-                f.flush()
-                os.fsync(f.fileno())
-            os.rename(tmp, path)
-        except Exception:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
-        return len(live)
+        current = _current_entries()
+        _write_entries(current)
+        return len(current)
 
 
 def needs_compaction(line_threshold: int = 64) -> bool:
