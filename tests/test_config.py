@@ -1,9 +1,15 @@
 import json
 import os
 import platform
+import sys
+from types import SimpleNamespace
+from unittest import mock
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
+import voice_buddy.config as config_module
 from voice_buddy.config import (
     get_config_dir,
     load_user_config,
@@ -110,6 +116,95 @@ def test_save_user_config_writes_json(tmp_path):
     saved = json.loads((tmp_path / "config.json").read_text())
     assert saved["style"] == "secretary"
     assert saved["nickname"] == "Boss"
+
+
+def _assert_failed_save_preserves_config(tmp_path, failure):
+    config_path = tmp_path / "config.json"
+    original = {"style": "cute-girl", "nickname": "Original"}
+    config_path.write_text(json.dumps(original))
+
+    with patch("voice_buddy.config.get_config_dir", return_value=tmp_path):
+        with pytest.raises(Exception):
+            failure({"style": "kawaii", "nickname": "Replacement"})
+
+    assert json.loads(config_path.read_text()) == original
+    assert list(tmp_path.glob("config.*.tmp")) == []
+
+
+def test_save_serialization_failure_preserves_existing_config(tmp_path):
+    def fail(config):
+        save_user_config({"unserializable": object()})
+
+    _assert_failed_save_preserves_config(tmp_path, fail)
+
+
+def test_save_write_failure_preserves_existing_config(tmp_path):
+    def partial_write_then_fail(data, stream, **kwargs):
+        stream.write('{"style":')
+        raise OSError("disk full")
+
+    def fail(config):
+        with patch("voice_buddy.config.json.dump",
+                   side_effect=partial_write_then_fail):
+            save_user_config(config)
+
+    _assert_failed_save_preserves_config(tmp_path, fail)
+
+
+def test_save_fsync_failure_preserves_existing_config(tmp_path):
+    def fail(config):
+        with patch("voice_buddy.config.os.fsync",
+                   side_effect=OSError("fsync failed")):
+            save_user_config(config)
+
+    _assert_failed_save_preserves_config(tmp_path, fail)
+
+
+def test_save_replace_failure_preserves_existing_config(tmp_path):
+    def fail(config):
+        with patch("voice_buddy.config.os.replace",
+                   side_effect=OSError("replace failed")):
+            save_user_config(config)
+
+    _assert_failed_save_preserves_config(tmp_path, fail)
+
+
+def test_first_run_and_updates_use_the_same_atomic_writer(tmp_path):
+    with patch("voice_buddy.config.get_config_dir", return_value=tmp_path), \
+         patch("voice_buddy.config._write_config_atomic",
+               wraps=config_module._write_config_atomic) as atomic_write:
+        load_user_config()
+        save_user_config({"style": "kawaii"})
+
+    assert atomic_write.call_count == 2
+    assert all(
+        call.args[0] == tmp_path / "config.json"
+        for call in atomic_write.call_args_list
+    )
+
+
+def test_hotkey_doctor_implicit_update_uses_atomic_replace(
+        tmp_path, monkeypatch):
+    from voice_buddy import hotkey_doctor
+
+    quartz = SimpleNamespace(
+        kCGEventKeyDown=10,
+        kCGSessionEventTap=1,
+        kCGHeadInsertEventTap=2,
+        kCGEventTapOptionListenOnly=3,
+        CGEventTapCreate=mock.Mock(return_value=object()),
+    )
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setitem(sys.modules, "Quartz", quartz)
+    (tmp_path / "config.json").write_text(json.dumps(DEFAULT_CONFIG))
+
+    with patch("voice_buddy.config.get_config_dir", return_value=tmp_path), \
+         patch("voice_buddy.config.os.replace", wraps=os.replace) as replace:
+        row = hotkey_doctor.check_accessibility_granted()
+
+    assert row["status"] == hotkey_doctor.OK
+    replace.assert_called_once()
+    assert replace.call_args.args[1] == tmp_path / "config.json"
 
 
 def test_load_user_config_uses_plugin_env_vars_on_first_run(tmp_path):
