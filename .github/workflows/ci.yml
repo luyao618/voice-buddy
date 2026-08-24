@@ -180,7 +180,16 @@ jobs:
           PY
           python scripts/scan_artifacts.py dist
 
-      - name: Install the wheel into a clean environment
+      - name: A standalone wheel install refuses to pose as a working install
+        # The wheel carries the Python package only; personas/, templates/ and
+        # assets/ are delivered by the plugin. This step used to run
+        # `voice-buddy config` and call the console script working — but that
+        # command reads none of those resources, so it passed while every
+        # persona, template and audio lookup silently returned None.
+        #
+        # The supported contract is the Claude plugin (see README
+        # "Distribution contract"). What CI gates is therefore the opposite
+        # property: the unsupported surface must fail loudly, with the fix.
         shell: bash
         run: |
           set -euo pipefail
@@ -188,8 +197,49 @@ jobs:
           /tmp/clean/bin/python -m pip install --upgrade pip
           /tmp/clean/bin/python -m pip install dist/*.whl
           /tmp/clean/bin/python -c "import voice_buddy; print(voice_buddy.__version__)"
-          /tmp/clean/bin/voice-buddy config >/dev/null
-          echo "console script runs"
+
+          # Run from a scratch cwd: the repo checkout is itself a valid plugin
+          # root, and resolving it would mask the very failure under test.
+          mkdir -p /tmp/scratch
+          set +e
+          out="$(cd /tmp/scratch && /tmp/clean/bin/voice-buddy config 2>&1)"
+          rc=$?
+          set -e
+          echo "$out"
+          if [ "$rc" -eq 0 ]; then
+            echo "::error::wheel-only install reported success; it cannot speak without plugin resources"
+            exit 1
+          fi
+          grep -q "not a supported installation method" <<<"$out"
+          grep -q "/plugin install voice-buddy" <<<"$out"
+          echo "unsupported wheel install fails loudly with actionable guidance (exit $rc)"
+
+      - name: The plugin layout resolves every runtime resource
+        # The positive half of the contract: with the plugin root on
+        # PYTHONPATH — what Claude Code provides via CLAUDE_PLUGIN_ROOT — the
+        # real style -> template -> asset chain resolves. Only external TTS and
+        # playback I/O are out of scope here; nothing in this path is stubbed.
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$PWD" /tmp/clean/bin/python - <<'PY'
+          from voice_buddy import config, main, response, styles
+          from voice_buddy.context import analyze_context
+
+          assert not config.missing_runtime_resources(), config.missing_runtime_resources()
+
+          style = styles.load_style("cute-girl")
+          assert style and style["id"] == "cute-girl", style
+          assert len(styles.list_styles()) == 7
+
+          ctx = analyze_context({"hook_event_name": "SessionStart"})
+          result = response.select_response(ctx, "cute-girl", "Master")
+          assert result and result.text, result
+
+          audio = main.resolve_audio_path("cute-girl", result.audio_id)
+          assert audio, f"no packaged asset for {result.audio_id}"
+          print(f"resolved persona, template and asset: {audio}")
+          PY
 
       - name: Hooks run with pyobjc absent
         # Linux and Windows installs must not need Quartz; the hook has to exit

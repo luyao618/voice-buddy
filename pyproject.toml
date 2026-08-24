@@ -25,6 +25,14 @@ keywords = ["voice", "tts", "personality", "companion"]
 requires-python = ">=3.10,<3.15"
 
 classifiers = [
+    # Distribution contract: this project ships as a Claude Code plugin, not as
+    # a PyPI package. The wheel carries only the Python package; personas/,
+    # templates/, assets/, agents/, hooks/ and the slash command are delivered
+    # by the plugin, so a standalone `pip install` cannot produce a working
+    # install. "Private :: Do Not Upload" is unregistered by design — PyPI
+    # rejects any upload carrying it, which makes the contract enforced rather
+    # than merely documented. See README "Distribution contract".
+    "Private :: Do Not Upload",
     "License :: OSI Approved :: MIT License",
     "Operating System :: MacOS :: MacOS X",
     "Operating System :: POSIX :: Linux",

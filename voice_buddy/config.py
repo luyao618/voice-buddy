@@ -102,3 +102,36 @@ def save_user_config(config: dict) -> None:
 def get_repo_root() -> Path:
     """Return the repo/plugin root directory."""
     return _REPO_ROOT
+
+
+# Runtime resources live at the plugin root, not inside the Python package.
+# Under the supported install paths — Claude plugin, editable checkout — the
+# package's parent *is* that root, so this resolves correctly and there is a
+# single source of truth. A standalone wheel install has no plugin root: the
+# parent is site-packages/, these directories are absent, and every lookup
+# silently returns None. That surface is deliberately unsupported (see README
+# "Distribution contract"); this check is what lets callers say so out loud
+# rather than behave like a voice companion with nothing to say.
+_RUNTIME_RESOURCE_DIRS = ("personas", "templates", "assets")
+
+INSTALL_HELP = (
+    "Voice Buddy's runtime resources (personas/, templates/, assets/) were not "
+    "found next to the installed package.\n"
+    "Standalone `pip install` is not a supported installation method — the "
+    "personas, templates, audio assets, hooks and agents are all delivered by "
+    "the Claude Code plugin, not the wheel.\n"
+    "Install it as a plugin instead:\n"
+    "  /plugin marketplace add luyao618/voice-buddy\n"
+    "  /plugin install voice-buddy\n"
+    "Or, for development, from a checkout:\n"
+    "  pip install -c constraints.txt -e \".[dev]\""
+)
+
+
+def missing_runtime_resources() -> list[str]:
+    """Return the runtime resource directories absent from the install root.
+
+    Empty means every resource the voice path needs is present.
+    """
+    root = get_repo_root()
+    return [name for name in _RUNTIME_RESOURCE_DIRS if not (root / name).is_dir()]
