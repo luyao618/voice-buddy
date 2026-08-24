@@ -4,6 +4,7 @@ import copy
 import json
 import os
 import platform
+import tempfile
 from pathlib import Path
 
 DEFAULT_CONFIG = {
@@ -26,6 +27,26 @@ DEFAULT_CONFIG = {
 }
 
 _REPO_ROOT = Path(__file__).parent.parent
+
+
+def _write_config_atomic(config_path: Path, config: dict) -> None:
+    """Persist config without exposing a partial destination file."""
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(
+        prefix="config.", suffix=".tmp", dir=str(config_path.parent),
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, config_path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def get_config_dir() -> Path:
@@ -66,37 +87,15 @@ def load_user_config() -> dict:
             defaults["style"] = env_style
         if env_nickname:
             defaults["nickname"] = env_nickname
-        config_dir.mkdir(parents=True, exist_ok=True)
-        # Atomic write to avoid corruption from concurrent first-run calls
-        import tempfile
-        fd, tmp_path = tempfile.mkstemp(
-            prefix="config.", suffix=".tmp", dir=str(config_dir),
-        )
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(defaults, f, indent=2, ensure_ascii=False)
-                f.flush()
-                os.fsync(f.fileno())
-            os.rename(tmp_path, config_path)
-        except Exception:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
+        _write_config_atomic(config_path, defaults)
         return defaults
 
 
 def save_user_config(config: dict) -> None:
-    """Save user config to disk."""
-    config_dir = get_config_dir()
-    config_dir.mkdir(parents=True, exist_ok=True)
-    config_path = config_dir / "config.json"
-    with open(config_path, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2, ensure_ascii=False)
+    """Atomically save user config to disk."""
+    _write_config_atomic(get_config_dir() / "config.json", config)
 
 
 def get_repo_root() -> Path:
     """Return the repo/plugin root directory."""
     return _REPO_ROOT
-
