@@ -440,6 +440,26 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # Every other command reads a persona, a template or an audio asset, either
+    # directly or through the hooks it registers. Without those an install can
+    # print config and register hooks that will never produce a sound, which is
+    # how an unsupported wheel install used to look identical to a working one.
+    # Fail here, once, with the fix — not silently in seven lookup sites.
+    #
+    # `uninstall` is exempt: it only removes hook entries from settings.json and
+    # is the way out of a broken install. Gating it would strand a user who ran
+    # setup before the resources went missing, with the hooks still registered.
+    if args.command != "uninstall":
+        from voice_buddy.config import INSTALL_HELP, missing_runtime_resources
+        missing = missing_runtime_resources()
+        if missing:
+            print(
+                f"error: missing runtime resources: {', '.join(missing)}\n\n"
+                f"{INSTALL_HELP}",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
     if args.command == "setup":
         if args.is_global:
             project_dir = os.path.expanduser("~")

@@ -68,6 +68,42 @@ During installation you'll be prompted to choose a **style** and **nickname**. P
 
 Hooks are auto-registered on install — no manual setup needed.
 
+#### Distribution contract
+
+**The Claude Code plugin is the only supported way to install Voice Buddy.**
+`pip install voice-buddy` is **not supported** and the package is not published
+to PyPI.
+
+The reason is that the wheel can only carry the Python package. Everything that
+makes Voice Buddy a voice companion is delivered by the plugin and read from the
+plugin root:
+
+| Delivered by the plugin | Used for |
+|---|---|
+| `personas/` | Per-style TTS voice, rate and pitch |
+| `templates/` | Per-style phrase templates |
+| `assets/audio/` | 84 pre-packaged MP3 files |
+| `agents/` | The 7 style-specific persona subagents |
+| `hooks/hooks.json` | Auto-registered session hooks |
+| `commands/voice-buddy.md` | The `/voice-buddy` panel |
+
+A standalone wheel install has none of them, so it cannot speak. It used to fail
+silently — `voice-buddy config` printed settings quite happily while every
+persona, template and audio lookup returned nothing. It now refuses up front:
+
+```console
+$ voice-buddy config
+error: missing runtime resources: personas, templates, assets
+
+Voice Buddy's runtime resources (personas/, templates/, assets/) were not found
+next to the installed package.
+Standalone `pip install` is not a supported installation method — ...
+```
+
+Working from a checkout is a different thing and remains supported: an editable
+install (`pip install -e .`) keeps the resources next to the package. See
+[Development](#development).
+
 #### Upgrade
 
 ```bash
@@ -492,6 +528,39 @@ Voice Buddy 接入 [Claude Code 的 Hook 系统](https://docs.anthropic.com/en/d
 安装时会提示选择**风格**和**称呼**，也可以直接回车使用默认值（cute-girl / Master）。
 
 安装完成后 Hook 自动注册，无需手动配置。
+
+#### 分发契约
+
+**Claude Code plugin 是唯一受支持的安装方式。**
+`pip install voice-buddy` **不支持**，本项目也不会发布到 PyPI。
+
+原因是 wheel 只能携带 Python package 本身。真正让 Voice Buddy 能说话的资源
+全部由 plugin 交付，并从 plugin root 读取：
+
+| 由 plugin 交付 | 用途 |
+|---|---|
+| `personas/` | 各风格的 TTS voice、语速、音高 |
+| `templates/` | 各风格的话术模板 |
+| `assets/audio/` | 84 个预打包 MP3 |
+| `agents/` | 7 个风格 persona subagent |
+| `hooks/hooks.json` | 自动注册的 session hooks |
+| `commands/voice-buddy.md` | `/voice-buddy` 面板 |
+
+独立 wheel 安装完全没有这些资源，因此无法发声。以前它是**静默失败**的——
+`voice-buddy config` 能正常打印配置，而 persona、模板、音频的每一次查找都返回空。
+现在它会直接报错并给出修复方式：
+
+```console
+$ voice-buddy config
+error: missing runtime resources: personas, templates, assets
+
+Voice Buddy's runtime resources (personas/, templates/, assets/) were not found
+next to the installed package.
+Standalone `pip install` is not a supported installation method — ...
+```
+
+从 checkout 开发是另一回事，仍然受支持：editable 安装（`pip install -e .`）会让
+资源留在 package 旁边。参见 [Development](#development)。
 
 #### 升级
 

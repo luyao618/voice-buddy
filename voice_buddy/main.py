@@ -9,7 +9,12 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from voice_buddy.config import load_user_config, get_repo_root
+from voice_buddy.config import (
+    INSTALL_HELP,
+    get_repo_root,
+    load_user_config,
+    missing_runtime_resources,
+)
 from voice_buddy.context import analyze_context
 from voice_buddy.response import select_response
 from voice_buddy.styles import load_style
@@ -82,6 +87,18 @@ def handle_hook_event(data: dict) -> None:
         return
 
     event_key = _EVENT_NAME_MAP.get(event_name, "")
+
+    # An install without runtime resources can never speak. Say so once, at
+    # WARNING with the fix, instead of letting every downstream lookup return
+    # None and look indistinguishable from "nothing to say" in the log. Still
+    # returns normally: a hook must never disrupt the user's Claude session.
+    missing = missing_runtime_resources()
+    if missing:
+        logger.warning(
+            "Voice Buddy cannot speak: missing runtime resources (%s) under %s.\n%s",
+            ", ".join(missing), get_repo_root(), INSTALL_HELP,
+        )
+        return
 
     # Load user config
     try:
