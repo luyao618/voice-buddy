@@ -4,6 +4,7 @@ import copy
 import json
 import os
 import platform
+import tempfile
 from pathlib import Path
 
 DEFAULT_CONFIG = {
@@ -26,6 +27,25 @@ DEFAULT_CONFIG = {
 }
 
 _REPO_ROOT = Path(__file__).parent.parent
+
+
+def _atomic_write_json(path: Path, value: dict) -> None:
+    """Durably write JSON before atomically replacing the destination."""
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f"{path.stem}.", suffix=".tmp", dir=str(path.parent),
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(value, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def get_config_dir() -> Path:
@@ -67,23 +87,7 @@ def load_user_config() -> dict:
         if env_nickname:
             defaults["nickname"] = env_nickname
         config_dir.mkdir(parents=True, exist_ok=True)
-        # Atomic write to avoid corruption from concurrent first-run calls
-        import tempfile
-        fd, tmp_path = tempfile.mkstemp(
-            prefix="config.", suffix=".tmp", dir=str(config_dir),
-        )
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(defaults, f, indent=2, ensure_ascii=False)
-                f.flush()
-                os.fsync(f.fileno())
-            os.rename(tmp_path, config_path)
-        except Exception:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
+        _atomic_write_json(config_path, defaults)
         return defaults
 
 
@@ -92,11 +96,9 @@ def save_user_config(config: dict) -> None:
     config_dir = get_config_dir()
     config_dir.mkdir(parents=True, exist_ok=True)
     config_path = config_dir / "config.json"
-    with open(config_path, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2, ensure_ascii=False)
+    _atomic_write_json(config_path, config)
 
 
 def get_repo_root() -> Path:
     """Return the repo/plugin root directory."""
     return _REPO_ROOT
-
