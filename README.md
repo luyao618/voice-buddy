@@ -177,6 +177,9 @@ voice-buddy off
 # Test
 voice-buddy test sessionstart
 voice-buddy test notification
+
+# Preview another style without saving it
+voice-buddy test notification --style kawaii
 ```
 
 Config file location:
@@ -305,6 +308,7 @@ voice-buddy hotkey-doctor --json              # machine-readable
 - **Spawn**: SessionStart hook checks if a live listener exists; if not, spawns one (detached, ~500 ms cold start).
 - **Self-exit**: When the last Claude Code session ends, the listener notices via a 30 s idle timer and exits cleanly.
 - **F2 = stop currently playing audio only.** Queued TTS that hasn't started playing yet is not cancelled.
+- Disabling `sessionstart` or `sessionend` audio does not skip listener lifecycle bookkeeping. SessionEnd also cleans up its session registration when Voice Buddy is off.
 - See `docs/manual-tests.md` for the full QA checklist.
 
 #### Troubleshooting
@@ -632,6 +636,9 @@ voice-buddy off
 # 试听
 voice-buddy test sessionstart
 voice-buddy test notification
+
+# 临时试听其他风格，不修改已保存的配置
+voice-buddy test notification --style kawaii
 ```
 
 配置文件位置：
@@ -762,6 +769,7 @@ voice-buddy hotkey-doctor --json              # 机器可读
 - **启动**：SessionStart 钩子检查是否有活监听器；没有就 spawn 一个（detached，约 500ms 冷启动）
 - **退出**：最后一个 Claude Code 会话关闭后，监听器内置的 30 秒空闲定时器会发现 sessions/ 空了，自动退出
 - **F2 只打断当前正在播的那一段音频**，不会取消还没开始播的 TTS 队列
+- 关闭 `sessionstart` 或 `sessionend` 语音不会跳过监听器的启动或会话清理；全局关闭 Voice Buddy 后，SessionEnd 仍会清理会话记录。
 - 完整 QA 清单见 `docs/manual-tests.md`
 
 #### 故障排查

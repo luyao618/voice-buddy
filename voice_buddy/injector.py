@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shlex
 import sys
 from typing import Optional
 
@@ -190,7 +191,7 @@ def process_stop_event(data: dict, user_config: dict = None) -> None:
         f"Task summary: {summary}\n\n"
         f"Generate a {style_id} style one-sentence summary addressing the user as {nickname}, "
         f"then call Bash to speak it:\n"
-        f"PYTHONPATH={plugin_root} python3 -m voice_buddy.subagent_tts '<your sentence>'",
+        f"PYTHONPATH={shlex.quote(plugin_root)} python3 -m voice_buddy.subagent_tts '<your sentence>'",
         file=sys.stderr,
     )
     sys.exit(2)

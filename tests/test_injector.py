@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import pytest
 from voice_buddy.injector import process_stop_event, extract_last_assistant_message, _should_trigger
 
@@ -251,3 +252,15 @@ def test_process_stop_event_persona_override_set(tmp_path, capfd):
 
     captured = capfd.readouterr()
     assert "Be extra cheerful today" in captured.err
+
+
+def test_stop_command_quotes_plugin_path(monkeypatch, capsys):
+    plugin_root = "/tmp/Voice Buddy's plugin $(echo unexpected)"
+    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", plugin_root)
+    with pytest.raises(SystemExit):
+        process_stop_event({"last_assistant_message": "Fixed the bug."}, _make_config())
+    command = capsys.readouterr().err.splitlines()[-1]
+    assert shlex.split(command) == [
+        f"PYTHONPATH={plugin_root}", "python3", "-m",
+        "voice_buddy.subagent_tts", "<your sentence>",
+    ]
