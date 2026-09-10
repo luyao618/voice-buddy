@@ -135,9 +135,18 @@ def do_uninstall(project_dir: str = ".") -> None:
     print(f"Voice Buddy uninstalled from {project_dir}")
 
 
-def do_test(event: str) -> None:
+def do_test(event: str, style: str | None = None) -> None:
     """Simulate a hook event and run the full pipeline."""
     from voice_buddy.main import handle_hook_event
+
+    test_config = None
+    if style is not None:
+        from voice_buddy.config import load_user_config
+        from voice_buddy.styles import load_style
+        if load_style(style) is None:
+            print(f"Unknown style: {style}", file=sys.stderr)
+            sys.exit(2)
+        test_config = {**load_user_config(), "style": style}
 
     mock_data = {
         "sessionstart": {
@@ -191,7 +200,7 @@ def do_test(event: str) -> None:
         print("(Stop event: testing injector path only, outputs additionalContext JSON)")
 
     try:
-        handle_hook_event(data)
+        handle_hook_event(data, user_config=test_config)
     except SystemExit:
         pass  # Expected: injector calls sys.exit(2) on trigger
     finally:
@@ -477,7 +486,7 @@ def main() -> None:
             project_dir = "."
         do_uninstall(project_dir=project_dir)
     elif args.command == "test":
-        do_test(args.event)
+        do_test(args.event, style=args.style)
     elif args.command == "config":
         # Hotkey-related changes go through do_set_hotkey; classic style/nickname/event
         # changes go through do_config. Both can be combined in a single invocation.

@@ -1,6 +1,14 @@
 import json
+import pytest
 from unittest.mock import patch, MagicMock
 from voice_buddy.main import handle_hook_event
+
+
+@pytest.fixture(autouse=True)
+def supervisor():
+    with patch("voice_buddy.listener_supervisor.ensure_listener_for_session") as start, \
+         patch("voice_buddy.listener_supervisor.release_session") as end:
+        yield start, end
 
 
 def test_handle_sessionstart_plays_prepackaged_audio():
@@ -114,3 +122,36 @@ def test_handle_stop_calls_injector():
          patch("voice_buddy.main.handle_stop_event") as mock_injector:
         handle_hook_event(data)
         mock_injector.assert_called_once()
+
+
+def test_muted_session_start_still_starts_listener(supervisor):
+    config = {"enabled": True, "events": {"sessionstart": False}}
+    with patch("voice_buddy.main.load_user_config", return_value=config), \
+         patch("voice_buddy.main.play_audio") as play:
+        handle_hook_event({"hook_event_name": "SessionStart", "session_id": "muted"})
+    supervisor[0].assert_called_once_with("muted")
+    play.assert_not_called()
+
+
+@pytest.mark.parametrize("config", [
+    {"enabled": False},
+    {"events": {"sessionend": False}},
+])
+def test_disabled_session_end_still_releases_session(config, supervisor):
+    with patch("voice_buddy.main.load_user_config", return_value=config), \
+         patch("voice_buddy.main.play_audio") as play:
+        handle_hook_event({"hook_event_name": "SessionEnd", "session_id": "closed"})
+    supervisor[1].assert_called_once_with("closed")
+    play.assert_not_called()
+
+
+def test_session_end_releases_session_when_config_cannot_load(supervisor):
+    with patch("voice_buddy.main.load_user_config", side_effect=ValueError("invalid JSON")):
+        handle_hook_event({"hook_event_name": "SessionEnd", "session_id": "closed"})
+    supervisor[1].assert_called_once_with("closed")
+
+
+def test_session_end_releases_session_when_runtime_resources_are_missing(supervisor):
+    with patch("voice_buddy.main.missing_runtime_resources", return_value=["assets"]):
+        handle_hook_event({"hook_event_name": "SessionEnd", "session_id": "closed"})
+    supervisor[1].assert_called_once_with("closed")

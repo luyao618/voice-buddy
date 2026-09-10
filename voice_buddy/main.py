@@ -69,7 +69,7 @@ def safe_event_label(data) -> str:
     return f"unknown({type(name).__name__})"
 
 
-def handle_hook_event(data: dict) -> None:
+def handle_hook_event(data: dict, user_config: Optional[dict] = None) -> None:
     """Process a hook event from Claude Code."""
     if not isinstance(data, dict):
         logger.warning(
@@ -88,6 +88,16 @@ def handle_hook_event(data: dict) -> None:
 
     event_key = _EVENT_NAME_MAP.get(event_name, "")
 
+    # Session cleanup must run even when voice is disabled or config is broken.
+    if event_name == "SessionEnd":
+        try:
+            from voice_buddy import listener_supervisor
+            listener_supervisor.release_session(
+                str(data.get("session_id", "default"))
+            )
+        except Exception as e:
+            logger.debug(f"hotkey supervisor (end) failed: {e}")
+
     # An install without runtime resources can never speak. Say so once, at
     # WARNING with the fix, instead of letting every downstream lookup return
     # None and look indistinguishable from "nothing to say" in the log. Still
@@ -102,7 +112,8 @@ def handle_hook_event(data: dict) -> None:
 
     # Load user config
     try:
-        user_config = load_user_config()
+        if user_config is None:
+            user_config = load_user_config()
     except Exception as e:
         logger.debug(f"Failed to load user config: {e}")
         return
@@ -111,14 +122,7 @@ def handle_hook_event(data: dict) -> None:
     if not user_config.get("enabled", True):
         return
 
-    # Check per-event enable
-    if not user_config.get("events", {}).get(event_key, True):
-        return
-
-    style = user_config.get("style", "cute-girl")
-    nickname = user_config.get("nickname", "Master")
-
-    # Hotkey listener lifecycle wiring (macOS only; gated by config).
+    # The session greeting setting must not disable the hotkey listener.
     if event_name == "SessionStart":
         try:
             from voice_buddy import listener_supervisor
@@ -127,14 +131,13 @@ def handle_hook_event(data: dict) -> None:
             )
         except Exception as e:
             logger.debug(f"hotkey supervisor (start) failed: {e}")
-    elif event_name == "SessionEnd":
-        try:
-            from voice_buddy import listener_supervisor
-            listener_supervisor.release_session(
-                str(data.get("session_id", "default"))
-            )
-        except Exception as e:
-            logger.debug(f"hotkey supervisor (end) failed: {e}")
+
+    # Check per-event audio enable after listener lifecycle bookkeeping.
+    if not user_config.get("events", {}).get(event_key, True):
+        return
+
+    style = user_config.get("style", "cute-girl")
+    nickname = user_config.get("nickname", "Master")
 
     # Stop event goes through injector path
     if event_name == "Stop":

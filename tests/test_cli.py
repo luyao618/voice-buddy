@@ -263,3 +263,34 @@ def test_do_off(tmp_path):
         do_off()
     saved = json.loads(config_path.read_text())
     assert saved["enabled"] is False
+
+
+def test_cli_test_forwards_style(monkeypatch):
+    from voice_buddy import cli
+    monkeypatch.setattr("sys.argv", ["voice-buddy", "test", "notification", "--style", "kawaii"])
+    with patch.object(cli, "do_test") as preview:
+        cli.main()
+    preview.assert_called_once_with("notification", style="kawaii")
+
+
+def test_style_preview_does_not_change_saved_config(tmp_path):
+    from voice_buddy import cli
+    from voice_buddy.config import save_user_config
+    with patch("voice_buddy.config.get_config_dir", return_value=tmp_path):
+        save_user_config({"style": "cute-girl", "nickname": "Master"})
+        previous = (tmp_path / "config.json").read_bytes()
+        with patch("voice_buddy.main.select_response", return_value=None) as select:
+            cli.do_test("notification", style="kawaii")
+        assert select.call_args.kwargs["style"] == "kawaii"
+        assert (tmp_path / "config.json").read_bytes() == previous
+
+
+def test_style_preview_rejects_unknown_style(capsys):
+    import pytest
+    from voice_buddy import cli
+    with patch("voice_buddy.main.handle_hook_event") as handle, \
+         pytest.raises(SystemExit) as exc:
+        cli.do_test("notification", style="missing-style")
+    assert exc.value.code == 2
+    assert "Unknown style" in capsys.readouterr().err
+    handle.assert_not_called()
